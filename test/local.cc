@@ -28,13 +28,17 @@ std::string random_string(std::size_t length) {
   return random_string;
 }
 
-std::string gen_key() { return random_string(16); }
+// 增加线程号，防止不同线程生成相同的key
+std::string gen_key(int t) {
+  string tt = to_string(t); 
+  return tt + random_string(16 - tt.size()); 
+}
 
 std::string gen_val() { return random_string(128); }
 
 const int sz = 100000;
 
-const int num_tds = 1;
+const int num_tds = 4;
 thread threads1[num_tds], threads2[num_tds];
 
 unordered_map<string, string> keyvalues[num_tds];
@@ -42,10 +46,17 @@ unordered_map<string, string> keyvalues[num_tds];
 void *put(LocalEngine *kv, int t) {
   for (int i = 0; i < sz; i++) {
     string k, v;
-    k = gen_key(), v = gen_val();
+    k = gen_key(t), v = gen_val();
     // cout << "key: " << k << " value: " << v << endl;
     kv->write(k, v);
     keyvalues[t][k] = v;
+    // {
+    //   string vv;
+    //   kv->read(k, vv);
+    //   if (keyvalues[t][k] != vv) {
+    //     printf("put thread#%d, error\n", t);
+    //   }
+    // }
     if (i % 1000 == 0) {
       printf("put: \t%d\r", i);
     }
@@ -59,7 +70,7 @@ void *pget(LocalEngine *kv, int t) {
     string v;
     kv->read(s.first, v);
     if (v != s.second) {
-      printf("error! [%ld] expect: %s, but get: %s\n", i, s.second.c_str(), v.c_str());
+      // printf("error! [%ld] expect: %s, but get: %s\n", i, s.second.c_str(), v.c_str());
       // for (int j = 0; j < num_tds; j++) {
       //   if (keyvalues[j].find(s.first) != keyvalues[j].end()) {
       //     printf("j = %d\n", j);
@@ -67,8 +78,8 @@ void *pget(LocalEngine *kv, int t) {
       //   }
       // }
       int index = std::hash<std::string>()(s.first) & (SHARDING_NUM - 1);
-      printf("index: %d\n", index);
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      printf("thraed#%d, index: %d\n",t, index);
+      // std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     ++i;
   }
@@ -80,8 +91,8 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  std::string rdma_addr("192.168.1.11");
-  std::string rdma_port("33333");
+  std::string rdma_addr("192.168.21.128");
+  std::string rdma_port("22222");
 
   if (argc == 2) {
     rdma_addr = std::string(argv[1]);
@@ -104,6 +115,8 @@ int main(int argc, char *argv[]) {
 
   cout << "put done" << endl;
 
+  sleep(5);
+
   for (int i = 0; i < num_tds; i++) {
     cout << "start get thread " << i << endl;
     threads2[i] = thread(pget, kv_imp, i);
@@ -119,8 +132,8 @@ int main(int argc, char *argv[]) {
   //   cout << "thread " << i << " " << kv_imp->m_kvs_[i].size() << endl;
   // }
 
-  while (1)
-    ;
+  // while (1)
+  //   ;
 
   kv_imp->stop();
   delete kv_imp;
