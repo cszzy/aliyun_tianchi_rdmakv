@@ -38,7 +38,7 @@ std::string gen_val() { return random_string(128); }
 
 const int sz = 100000;
 
-const int num_tds = 4;
+const int num_tds = 1;
 thread threads1[num_tds], threads2[num_tds];
 
 unordered_map<string, string> keyvalues[num_tds];

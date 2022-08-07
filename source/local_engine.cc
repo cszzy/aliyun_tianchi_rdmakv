@@ -57,15 +57,21 @@ bool LocalEngine::write(const std::string key, const std::string value) {
     /* Reuse the old addr. In this case, the new value size should be the same
      * with old one. TODO: Solve the situation that the new value size is larger
      * than the old  one */
-    remote_addr = it->internal_value.remote_addr;
-    rkey = it->internal_value.rkey;
+    uint64_t mem_addr;
+    if (m_rdma_mem_pool_->get_mem_info(it->internal_value.mt_.mem_id, mem_addr, rkey))
+      return false;
+    remote_addr = mem_addr + GET_OFFSET(it->internal_value.mt_.offset);
     found = true;
   } else {
     /* Not written yet, get the memory first. */
-    if (m_rdma_mem_pool_->get_mem(value.size(), remote_addr, rkey)) {
+    uint64_t mem_addr;
+    if (m_rdma_mem_pool_->get_mem(value.size(), internal_value.mt_.mem_id,
+                           internal_value.mt_.offset, mem_addr, rkey)) {
       m_mutex_[index].unlock();
       return false;
     }
+    
+    remote_addr = mem_addr + GET_OFFSET(internal_value.mt_.offset);
     // printf("get mem %lld %d\n", remote_addr, rkey);
   }
   m_mutex_[index].unlock();
@@ -82,11 +88,6 @@ bool LocalEngine::write(const std::string key, const std::string value) {
   // printf("write key: %s, value: %s, %lld %d\n", key.c_str(), value.c_str(),
   //        remote_addr, rkey);
   if (found) return true; /* no need to update hash map */
-
-  /* Update the hash info. */
-  internal_value.remote_addr = remote_addr;
-  internal_value.rkey = rkey;
-  internal_value.size = value.size();
 
   /* Optimization: To support concurrent insertion */
   m_mutex_[index].lock();
@@ -118,9 +119,14 @@ bool LocalEngine::read(const std::string key, std::string &value) {
   }
   inter_val = it->internal_value;
   m_mutex_[index].unlock();
-  value.resize(inter_val.size, '0');
-  if (m_rdma_conn_->remote_read((void *)value.c_str(), inter_val.size,
-                                inter_val.remote_addr, inter_val.rkey))
+  value.resize(128, '0');
+  uint64_t remote_addr;
+  uint64_t mem_addr;
+  uint32_t rkey;
+  if (m_rdma_mem_pool_->get_mem_info(inter_val.mt_.mem_id, mem_addr, rkey))
+    return false;
+  remote_addr = mem_addr + GET_OFFSET(inter_val.mt_.offset);
+  if (m_rdma_conn_->remote_read((void *)value.c_str(), 128, remote_addr, rkey))
     return false;
   // printf("read key: %s, value: %s, size:%d, %lld %d\n", key.c_str(),
   //        value.c_str(), value.size(), inter_val.remote_addr, inter_val.rkey);

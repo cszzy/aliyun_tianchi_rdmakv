@@ -32,11 +32,13 @@ struct node_metadata{
   uint8_t offset[3]; // 除去128B的1G内的内存偏移
 };
 
+#define GET_OFFSET(addr) ((uint64_t)(((*(uint32_t*)addr) & 0x00FFFFFF) << 7))
+
 typedef struct internal_value_t {
-  // node_metadata metadata_;
-  uint64_t remote_addr;
-  uint32_t rkey;
-  uint8_t size; // TODO: 复赛需要使用该字段
+  node_metadata mt_;
+  // uint64_t remote_addr;
+  // uint32_t rkey;
+  // uint8_t size; // TODO: 复赛需要使用该字段
 } internal_value_t;
 
 /* One slot stores the key and the meta info of the value which
@@ -81,7 +83,7 @@ class hash_map_t {
   }
 
   /* Insert into the head of the list. */
-  void insert(const std::string &key, internal_value_t internal_value,
+  void insert(const std::string &key, const internal_value_t &internal_value,
               hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
