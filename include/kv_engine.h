@@ -26,20 +26,32 @@ static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 
 namespace kv {
 
+// 复赛需要修改
+struct node_metadata{
+  uint8_t mem_id; // 内存序号
+  uint8_t offset[3]; // 除去128B的1G内的内存偏移
+};
+
 typedef struct internal_value_t {
+  // node_metadata metadata_;
   uint64_t remote_addr;
   uint32_t rkey;
-  uint8_t size;
+  uint8_t size; // TODO: 复赛需要使用该字段
 } internal_value_t;
 
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
+#define NEXT_PTR_SIZE 6
 class hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
-  hash_map_slot *next;
+  // hash_map_slot *next;
+  uint8_t next[NEXT_PTR_SIZE]; // 实际linux只使用48位指针
 };
+
+// #define READ_SIX_BYTE(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
+#define READ_SIX_BYTE(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
 
 class hash_map_t {
  public:
@@ -63,7 +75,7 @@ class hash_map_t {
       if (memcmp(cur->key, key.c_str(), 16) == 0) {
         return cur;
       }
-      cur = cur->next;
+      cur = (hash_map_slot *)READ_SIX_BYTE(cur->next);
     }
     return nullptr;
   }
@@ -80,7 +92,7 @@ class hash_map_t {
       /* Insert into the head. */
       hash_map_slot *tmp = m_bucket[index];
       m_bucket[index] = new_slot;
-      new_slot->next = tmp;
+      memcpy(new_slot->next, &tmp, NEXT_PTR_SIZE);
     }
   }
 };
@@ -118,6 +130,8 @@ class LocalEngine : public Engine {
   std::mutex m_mutex_[SHARDING_NUM];
   RDMAMemPool *m_rdma_mem_pool_;
 };
+
+// const double tmp = sizeof(LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {
