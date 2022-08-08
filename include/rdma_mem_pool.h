@@ -1,9 +1,8 @@
 #pragma once
 
 #include "rdma_conn_manager.h"
-#include "rwlock.h"
 
-#define RDMA_ALLOCATE_SIZE (1 << 28ul)
+#define RDMA_ALLOCATE_SIZE (1 << 20ul)
 
 namespace kv {
 class RDMAMemPool {
@@ -18,12 +17,7 @@ class RDMAMemPool {
 
   ~RDMAMemPool() { destory(); }
 
-  // int get_mem(uint64_t size, uint64_t &addr, uint32_t &rkey);
-
-  // zzy add
-  int get_mem(uint64_t size, uint32_t &meta_, uint64_t &mem_addr, uint32_t &rkey);
-
-  int get_mem_info(uint32_t mem_id, uint64_t &mem_addr, uint32_t &rkey);
+  int get_mem(uint64_t size, uint64_t &addr, uint32_t &rkey);
 
  private:
   void destory();
@@ -32,7 +26,6 @@ class RDMAMemPool {
   uint32_t m_rkey_;        /* rdma remote key */
   uint64_t m_pos_;         /* the position used for allocation */
   std::vector<rdma_mem_t> m_used_mem_; /* the used mem */
-  RWLock m_used_mem_lock_;
   ConnectionManager *m_rdma_conn_;     /* rdma connection manager */
   std::mutex m_mutex_;                 /* used for concurrent mem allocation */
 };

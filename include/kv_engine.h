@@ -26,31 +26,20 @@ static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 
 namespace kv {
 
-typedef union internal_value_t {
-  struct {
-    uint32_t mem_id : 8;
-    uint32_t offset : 24;
-  };
-
-  uint32_t meta_;
-
+typedef struct internal_value_t {
+  uint64_t remote_addr;
+  uint32_t rkey;
+  uint8_t size;
 } internal_value_t;
-
-const int internal_value_t_size = sizeof(internal_value_t);
-
-#define GET_MEM_ID(val) ((val & 0xFF000000UL) >> 24)
-#define GET_OFFSET(val) (((val & 0x00FFFFFFUL)) << 7)
 
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
-class __attribute__((packed)) hash_map_slot {
+class hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
   hash_map_slot *next;
 };
-
-const int hash_map_slot_size = sizeof(hash_map_slot);
 
 class hash_map_t {
  public:
@@ -80,7 +69,7 @@ class hash_map_t {
   }
 
   /* Insert into the head of the list. */
-  void insert(const std::string &key, const internal_value_t &internal_value,
+  void insert(const std::string &key, internal_value_t internal_value,
               hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
@@ -129,8 +118,6 @@ class LocalEngine : public Engine {
   std::mutex m_mutex_[SHARDING_NUM];
   RDMAMemPool *m_rdma_mem_pool_;
 };
-
-const double LocalEngine_size = sizeof(LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {
