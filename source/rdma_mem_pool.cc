@@ -41,7 +41,7 @@ namespace kv {
 // }
 
 // 每次固定分配128B
-int RDMAMemPool::get_mem(uint64_t size, uint8_t &mem_id, uint8_t *offset, uint64_t &mem_addr, uint32_t &rkey) {
+int RDMAMemPool::get_mem(uint64_t size, uint32_t &meta_, uint64_t &mem_addr, uint32_t &rkey) {
     if (size > RDMA_ALLOCATE_SIZE) return -1;
 
   /* One of the optimizations is to support the concurrent mem allocation,
@@ -53,14 +53,15 @@ retry:
       m_current_mem_ != 0) { /* local mem is enough */
     // std::cout << "Alloc success " << std::endl;
     // printf("alloc success\n");
+    meta_ = 0;
     {
       ReadGuard rg(m_used_mem_lock_);
-      mem_id = m_used_mem_.size() - 1;
+      meta_ |= ((m_used_mem_.size() - 1) << 24);
     }
     mem_addr = m_current_mem_;
     rkey = m_rkey_;
     uint32_t t = m_pos_ / 128;
-    memcpy(offset, &t, 3);
+    meta_ |= t;
     m_pos_ += 128;
     return 0;
   }
@@ -88,7 +89,7 @@ retry:
 }
 
 // 得到mem_id对应的mem起始地址和rkey
-int RDMAMemPool::get_mem_info(uint8_t mem_id, uint64_t &mem_addr, uint32_t &rkey) {
+int RDMAMemPool::get_mem_info(uint32_t mem_id, uint64_t &mem_addr, uint32_t &rkey) {
   ReadGuard rg(m_used_mem_lock_);
   if (mem_id >= m_used_mem_.size()) {
     return -1;

@@ -3,14 +3,14 @@ include_directories(${PROJECT_SOURCE_DIR}/test)
 
 # perf test
 add_executable(
-    perf_client
+    rdma_client
     client.cc
 )
-target_link_libraries(perf_client polarkv rdmacm ibverbs ibumad pci)
+target_link_libraries(rdma_client polarkv rdmacm ibverbs ibumad pci)
 
 
 add_executable(
-    perf_server
+    rdma_server
     server.cc
 )
-target_link_libraries(perf_server polarkv rdmacm ibverbs ibumad pci)
+target_link_libraries(rdma_server polarkv rdmacm ibverbs ibumad pci)

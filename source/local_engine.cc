@@ -58,20 +58,19 @@ bool LocalEngine::write(const std::string key, const std::string value) {
      * with old one. TODO: Solve the situation that the new value size is larger
      * than the old  one */
     uint64_t mem_addr;
-    if (m_rdma_mem_pool_->get_mem_info(it->internal_value.mt_.mem_id, mem_addr, rkey))
+    if (m_rdma_mem_pool_->get_mem_info(GET_MEM_ID(it->internal_value.meta_), mem_addr, rkey))
       return false;
-    remote_addr = mem_addr + GET_OFFSET(it->internal_value.mt_.offset);
+    remote_addr = mem_addr + GET_OFFSET(it->internal_value.meta_);
     found = true;
   } else {
     /* Not written yet, get the memory first. */
     uint64_t mem_addr;
-    if (m_rdma_mem_pool_->get_mem(value.size(), internal_value.mt_.mem_id,
-                           internal_value.mt_.offset, mem_addr, rkey)) {
+    if (m_rdma_mem_pool_->get_mem(value.size(), internal_value.meta_, mem_addr, rkey)) {
       m_mutex_[index].unlock();
       return false;
     }
     
-    remote_addr = mem_addr + GET_OFFSET(internal_value.mt_.offset);
+    remote_addr = mem_addr + GET_OFFSET(internal_value.meta_);
     // printf("get mem %lld %d\n", remote_addr, rkey);
   }
   m_mutex_[index].unlock();
@@ -123,9 +122,9 @@ bool LocalEngine::read(const std::string key, std::string &value) {
   uint64_t remote_addr;
   uint64_t mem_addr;
   uint32_t rkey;
-  if (m_rdma_mem_pool_->get_mem_info(inter_val.mt_.mem_id, mem_addr, rkey))
+  if (m_rdma_mem_pool_->get_mem_info(GET_MEM_ID(inter_val.meta_), mem_addr, rkey))
     return false;
-  remote_addr = mem_addr + GET_OFFSET(inter_val.mt_.offset);
+  remote_addr = mem_addr + GET_OFFSET(inter_val.meta_);
   if (m_rdma_conn_->remote_read((void *)value.c_str(), 128, remote_addr, rkey))
     return false;
   // printf("read key: %s, value: %s, size:%d, %lld %d\n", key.c_str(),

@@ -21,9 +21,9 @@ class RDMAMemPool {
   // int get_mem(uint64_t size, uint64_t &addr, uint32_t &rkey);
 
   // zzy add
-  int get_mem(uint64_t size, uint8_t &mem_id, uint8_t *offset, uint64_t &mem_addr, uint32_t &rkey);
+  int get_mem(uint64_t size, uint32_t &meta_, uint64_t &mem_addr, uint32_t &rkey);
 
-  int get_mem_info(uint8_t mem_id, uint64_t &mem_addr, uint32_t &rkey);
+  int get_mem_info(uint32_t mem_id, uint64_t &mem_addr, uint32_t &rkey);
 
  private:
   void destory();

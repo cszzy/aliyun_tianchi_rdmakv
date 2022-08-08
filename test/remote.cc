@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
   
-  std::string rdma_addr("192.168.200.22");
+  std::string rdma_addr("192.168.200.26");
   std::string rdma_port("22222");
 
   if (argc == 2) {

@@ -26,34 +26,31 @@ static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 
 namespace kv {
 
-// 复赛需要修改
-struct node_metadata{
-  uint8_t mem_id; // 内存序号
-  uint8_t offset[3]; // 除去128B的1G内的内存偏移
-};
+typedef union internal_value_t {
+  struct {
+    uint32_t mem_id : 8;
+    uint32_t offset : 24;
+  };
 
-#define GET_OFFSET(addr) ((uint64_t)(((*(uint32_t*)addr) & 0x00FFFFFF) << 7))
+  uint32_t meta_;
 
-typedef struct internal_value_t {
-  node_metadata mt_;
-  // uint64_t remote_addr;
-  // uint32_t rkey;
-  // uint8_t size; // TODO: 复赛需要使用该字段
 } internal_value_t;
+
+const int internal_value_t_size = sizeof(internal_value_t);
+
+#define GET_MEM_ID(val) ((val & 0xFF000000UL) >> 24)
+#define GET_OFFSET(val) (((val & 0x00FFFFFFUL)) << 7)
 
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
-#define NEXT_PTR_SIZE 6
-class hash_map_slot {
+class __attribute__((packed)) hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
-  // hash_map_slot *next;
-  uint8_t next[NEXT_PTR_SIZE]; // 实际linux只使用48位指针
+  hash_map_slot *next;
 };
 
-// #define READ_SIX_BYTE(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
-#define READ_SIX_BYTE(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
+const int hash_map_slot_size = sizeof(hash_map_slot);
 
 class hash_map_t {
  public:
@@ -77,7 +74,7 @@ class hash_map_t {
       if (memcmp(cur->key, key.c_str(), 16) == 0) {
         return cur;
       }
-      cur = (hash_map_slot *)READ_SIX_BYTE(cur->next);
+      cur = cur->next;
     }
     return nullptr;
   }
@@ -94,7 +91,7 @@ class hash_map_t {
       /* Insert into the head. */
       hash_map_slot *tmp = m_bucket[index];
       m_bucket[index] = new_slot;
-      memcpy(new_slot->next, &tmp, NEXT_PTR_SIZE);
+      new_slot->next = tmp;
     }
   }
 };
@@ -133,7 +130,7 @@ class LocalEngine : public Engine {
   RDMAMemPool *m_rdma_mem_pool_;
 };
 
-// const double tmp = sizeof(LocalEngine) / 1024.0 / 1024.0 / 1024.0;
+const double LocalEngine_size = sizeof(LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {

@@ -36,9 +36,9 @@ std::string gen_key(int t) {
 
 std::string gen_val() { return random_string(128); }
 
-const int sz = 100000;
+const int sz = 50000;
 
-const int num_tds = 4;
+const int num_tds = 16;
 thread threads1[num_tds], threads2[num_tds];
 
 unordered_map<string, string> keyvalues[num_tds];
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  std::string rdma_addr("192.168.200.22");
+  std::string rdma_addr("192.168.200.26");
   std::string rdma_port("22222");
 
   if (argc == 2) {
