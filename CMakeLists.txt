@@ -3,7 +3,7 @@ project(POLAR_CONTEST)
 
 set(CMAKE_BUILD_TYPE "Debug")
 
-set(RDMA_LIB "-lrdmacm -libverbs -libumad -lpci -lefa")
+set(RDMA_LIB "-lrdmacm -libverbs -libumad -lpci")
 set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "-pthread -ldl -lrt ${RDMA_LIB} -${CMAKE_CXX_FLAGS}")
 
@@ -21,8 +21,10 @@ MESSAGE("Install prefix is: ${CMAKE_INSTALL_PREFIX}")
 add_subdirectory(include)
 add_subdirectory(source)
 
+add_subdirectory(perf_test)
+
 add_executable(remote test/remote.cc)
 add_executable(local test/local.cc)
 
-target_link_libraries(remote polarkv rdmacm ibverbs ibumad pci efa)
-target_link_libraries(local polarkv rdmacm ibverbs ibumad pci efa)
+target_link_libraries(remote polarkv rdmacm ibverbs ibumad pci)
+target_link_libraries(local polarkv rdmacm ibverbs ibumad pci)
