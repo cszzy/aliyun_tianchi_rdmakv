@@ -18,6 +18,7 @@
 #include "string"
 #include "thread"
 #include "unordered_map"
+#include "spinlock.h"
 
 #define VALUE_LEN 128
 #define SHARDING_NUM 128
@@ -29,7 +30,7 @@ namespace kv {
 
 typedef struct __attribute__((packed)) internal_value_t {
   uint64_t remote_addr;
-  uint32_t offset;
+  uint16_t offset;
 } internal_value_t;
 
 /* One slot stores the key and the meta info of the value which
@@ -41,9 +42,10 @@ class __attribute__((packed)) hash_map_slot {
   hash_map_slot *next;
 };
 
-class hash_map_t {
+class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
+  Spinlock m_bucket_lock[BUCKET_NUM];
 
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
@@ -55,16 +57,20 @@ class hash_map_t {
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
+    m_bucket_lock[index].lock();
     if (!m_bucket[index]) {
+      m_bucket_lock[index].unlock();
       return nullptr;
     }
     hash_map_slot *cur = m_bucket[index];
     while (cur) {
       if (memcmp(cur->key, key.c_str(), 16) == 0) {
+        m_bucket_lock[index].unlock();
         return cur;
       }
       cur = cur->next;
     }
+    m_bucket_lock[index].unlock();
     return nullptr;
   }
 
@@ -73,6 +79,7 @@ class hash_map_t {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
     new_slot->internal_value = internal_value;
+    m_bucket_lock[index].lock();
     if (!m_bucket[index]) {
       m_bucket[index] = new_slot;
     } else {
@@ -81,8 +88,11 @@ class hash_map_t {
       m_bucket[index] = new_slot;
       new_slot->next = tmp;
     }
+    m_bucket_lock[index].unlock();
   }
 };
+
+// const double hash_map_t_size = sizeof(hash_map_t) / 1024.0 / 1024;
 
 /* Abstract base engine */
 class Engine {

@@ -60,13 +60,13 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
   uint32_t offset = 0;
   bool found = false;
 
-  m_mutex_[index].lock();
+  // m_mutex_[index].lock();
   /* 先看看这个数据是不是之前写过 */
   hash_map_slot *it = m_hash_map_[index].find(key);
   if (!it) {
     /* 新写入的话就申请一个 addr 和 offset */
     if (m_mem_pool_[index]->get_remote_mem(value.size(), remote_addr, offset)) {
-      m_mutex_[index].unlock();
+      // m_mutex_[index].unlock();
       return false;
     }
   } else {
@@ -75,7 +75,7 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
     offset = it->internal_value.offset;
     found = true;
   }
-  m_mutex_[index].unlock();
+  // m_mutex_[index].unlock();
 
   /* 写入缓存，由缓存负责写入到remote */
   m_cache_[index]->Insert(remote_addr, offset, value.size(), value.c_str());
@@ -86,12 +86,12 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
 
   internal_value.remote_addr = remote_addr;
   internal_value.offset = offset;
-  m_mutex_[index].lock();
+  // m_mutex_[index].lock();
   /* Fetch a new slot from slot_array, do not need to new. */
   hash_map_slot *new_slot = &m_hash_slot_array_[m_slot_cnt_.fetch_add(1)];
   /* Update the hash_map. */
   m_hash_map_[index].insert(key, internal_value, new_slot);
-  m_mutex_[index].unlock();
+  // m_mutex_[index].unlock();
   return true;
 };
 
@@ -108,14 +108,14 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
   /* 保存 start_addr 和 offset 的结构体  */
   internal_value_t inter_val;
   /* 从hash表查 start_addr 和 offset */
-  m_mutex_[index].lock();
+  // m_mutex_[index].lock();
   hash_map_slot *it = m_hash_map_[index].find(key);
   if (!it) {
-    m_mutex_[index].unlock();
+    // m_mutex_[index].unlock();
     return false;
   }
   inter_val = it->internal_value;
-  m_mutex_[index].unlock();
+  // m_mutex_[index].unlock();
 
   value.resize(VALUE_LEN, 'a');
   /* 从cache读数据，如果cache miss，cache会remote read把数据读到本地再返回 */
