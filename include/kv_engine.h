@@ -42,6 +42,8 @@ class __attribute__((packed)) hash_map_slot {
   hash_map_slot *next;
 };
 
+// const int hash_map_slot_size = sizeof(hash_map_slot);
+
 class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
