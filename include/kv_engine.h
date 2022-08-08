@@ -21,7 +21,7 @@
 #include "spinlock.h"
 
 #define VALUE_LEN 128
-#define SHARDING_NUM 128
+#define SHARDING_NUM 64
 #define BUCKET_NUM 1048576
 static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
               "RingBuffer's size must be a positive power of 2");
