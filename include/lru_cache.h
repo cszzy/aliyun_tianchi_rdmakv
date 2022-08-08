@@ -40,6 +40,8 @@ struct ListNode {
   bool clean = true;
 };
 
+const int ListNode_size = sizeof(ListNode);
+
 class LRUCache {
  private:
   uint64_t capacity;                                 /* cache 容量，可容纳的cache entry数 */
