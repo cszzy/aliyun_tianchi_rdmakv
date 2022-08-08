@@ -10,6 +10,31 @@ using namespace std;
 
 std::mutex mtx;
 
+// 实时获取程序占用的内存，单位：kb。
+size_t physical_memory_used_by_process()
+{
+    FILE* file = fopen("/proc/self/status", "r");
+    int result = -1;
+    char line[128];
+
+    while (fgets(line, 128, file) != nullptr) {
+        if (strncmp(line, "VmRSS:", 6) == 0) {
+            int len = strlen(line);
+
+            const char* p = line;
+            for (; std::isdigit(*p) == false; ++p) {}
+
+            line[len - 3] = 0;
+            result = atoi(p);
+
+            break;
+        }
+    }
+
+    fclose(file);
+    return result;
+}
+
 std::string random_string(std::size_t length) {
   std::lock_guard<std::mutex> guard{mtx};
   const std::string CHARACTERS =
@@ -103,6 +128,9 @@ int main(int argc, char *argv[]) {
   auto ret = kv_imp->start(rdma_addr, rdma_port);
   assert(ret);  // 不能直接assert(kv_imp->start(rdma_addr,
                 // rdma_port))!assert在运行期间无效！
+
+  size_t init_dram_space_use = physical_memory_used_by_process();
+  std::cout << "before test, dram space use: " << init_dram_space_use / 1024.0 /1024.0  << " GB" << std::endl;
 
   for (int i = 0; i < num_tds; i++) {  // 16 个线程插入
     cout << "start put thread " << i << endl;

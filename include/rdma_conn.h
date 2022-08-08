@@ -10,11 +10,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string>
+#include <unordered_map>
 #include "msg.h"
 
 namespace kv {
 
 #define RESOLVE_TIMEOUT_MS 5000
+
+#define CACHE_ENTRY_SIZE (4096)
+#define CACHE_ENTRY_MEM_SIZE (128 * 16)
 
 /* RDMA connection */
 class RDMAConnection {
@@ -26,7 +30,7 @@ class RDMAConnection {
   int remote_write(void *ptr, uint64_t size, uint64_t remote_addr,
                    uint32_t rkey);
 
- private:
+ public:
   struct ibv_mr *rdma_register_memory(void *ptr, uint64_t size);
 
   int rdma_remote_read(uint64_t local_addr, uint32_t lkey, uint64_t length,

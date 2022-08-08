@@ -11,7 +11,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <atomic>
-#include "kv_engine.h"
+#include "lru_cache.h"
 #include "msg.h"
 #include "rdma_conn_manager.h"
 #include "rdma_mem_pool.h"
@@ -19,6 +19,7 @@
 #include "thread"
 #include "unordered_map"
 
+#define VALUE_LEN 128
 #define SHARDING_NUM 64
 #define BUCKET_NUM 1048576
 static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
@@ -26,15 +27,14 @@ static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 
 namespace kv {
 
-typedef struct internal_value_t {
+typedef struct __attribute__((packed)) internal_value_t {
   uint64_t remote_addr;
-  uint32_t rkey;
-  uint8_t size;
+  uint32_t offset;
 } internal_value_t;
 
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
-class hash_map_slot {
+class __attribute__((packed)) hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
@@ -69,8 +69,7 @@ class hash_map_t {
   }
 
   /* Insert into the head of the list. */
-  void insert(const std::string &key, internal_value_t internal_value,
-              hash_map_slot *new_slot) {
+  void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
     new_slot->internal_value = internal_value;
@@ -105,19 +104,23 @@ class LocalEngine : public Engine {
   void stop() override;
   bool alive() override;
 
-  bool write(const std::string key, const std::string value);
-  bool read(const std::string key, std::string &value);
+  bool write(const std::string &key, const std::string &value);
+  bool read(const std::string &key, std::string &value);
 
  private:
   kv::ConnectionManager *m_rdma_conn_;
   /* NOTE: should use some concurrent data structure, and also should take the
    * extra memory overhead into consideration */
-  hash_map_slot hash_slot_array[16 * 12000000];
-  hash_map_t m_hash_map[SHARDING_NUM]; /* Hash Map with sharding. */
-  std::atomic<int> slot_cnt{0}; /* Used to fetch the slot from hash_slot_array. */
+  hash_map_slot m_hash_slot_array_[16 * 12000000];
+  hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
+  std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
+
+  RDMAMemPool *m_mem_pool_[SHARDING_NUM];
   std::mutex m_mutex_[SHARDING_NUM];
-  RDMAMemPool *m_rdma_mem_pool_;
+  LRUCache *m_cache_[SHARDING_NUM];
 };
+
+const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {
@@ -144,11 +147,10 @@ class RemoteEngine : public Engine {
 
   struct ibv_mr *rdma_register_memory(void *ptr, uint64_t size);
 
-  int remote_write(WorkerInfo *work_info, uint64_t local_addr, uint32_t lkey,
-                   uint32_t length, uint64_t remote_addr, uint32_t rkey);
+  int remote_write(WorkerInfo *work_info, uint64_t local_addr, uint32_t lkey, uint32_t length, uint64_t remote_addr,
+                   uint32_t rkey);
 
-  int allocate_and_register_memory(uint64_t &addr, uint32_t &rkey,
-                                   uint64_t size);
+  int allocate_and_register_memory(uint64_t &addr, uint32_t &rkey, uint64_t size);
 
   void worker(WorkerInfo *work_info, uint32_t num);
 

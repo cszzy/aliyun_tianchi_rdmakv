@@ -2,7 +2,7 @@
 
 #include "rdma_conn_manager.h"
 
-#define RDMA_ALLOCATE_SIZE (1 << 20ul)
+#define RDMA_ALLOCATE_SIZE (1 << 24ul)
 
 namespace kv {
 class RDMAMemPool {
@@ -17,7 +17,16 @@ class RDMAMemPool {
 
   ~RDMAMemPool() { destory(); }
 
-  int get_mem(uint64_t size, uint64_t &addr, uint32_t &rkey);
+  // int get_mem(uint64_t size, uint64_t &addr, uint32_t &rkey);
+  int get_remote_mem(uint64_t size, uint64_t &start_addr, uint32_t &offset);
+
+  uint32_t get_rkey(uint64_t addr) {
+    std::lock_guard<std::mutex> guard{m_mutex_};
+    if (m_mem_rkey_.find(addr) == m_mem_rkey_.end()) {
+      return 0;
+    }
+    return m_mem_rkey_[addr];
+  }
 
  private:
   void destory();
@@ -28,5 +37,9 @@ class RDMAMemPool {
   std::vector<rdma_mem_t> m_used_mem_; /* the used mem */
   ConnectionManager *m_rdma_conn_;     /* rdma connection manager */
   std::mutex m_mutex_;                 /* used for concurrent mem allocation */
+
+  // local cache version
+  std::vector<rdma_mem_t> m_used_remote_mem_; /* the used mem */
+  std::unordered_map<uint64_t, uint32_t> m_mem_rkey_;
 };
 }  // namespace kv

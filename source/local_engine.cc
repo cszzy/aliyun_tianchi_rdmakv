@@ -1,7 +1,7 @@
+#include <iostream>
 #include "assert.h"
 #include "atomic"
 #include "kv_engine.h"
-#include <iostream>
 
 namespace kv {
 
@@ -14,10 +14,20 @@ namespace kv {
 bool LocalEngine::start(const std::string addr, const std::string port) {
   m_rdma_conn_ = new ConnectionManager();
   if (m_rdma_conn_ == nullptr) return -1;
-  if (m_rdma_conn_->init(addr, port, 4, 20)) return false;
-  m_rdma_mem_pool_ = new RDMAMemPool(m_rdma_conn_);
-  if (m_rdma_mem_pool_) return true;
-  return false;
+  if (m_rdma_conn_->init(addr, port, 4, 20)) {
+    printf("m_rdma_conn failed\n");
+    return false;
+  }
+  for (int i = 0; i < SHARDING_NUM; i++) {
+    // RDMAConnection *conn = new RDMAConnection();
+    // if (conn->init(addr, port)) {
+    //   printf("conn init failed\n");
+    //   return false;
+    // }
+    m_mem_pool_[i] = new RDMAMemPool(m_rdma_conn_);
+    m_cache_[i] = new LRUCache((uint64_t)CACHE_ENTRY_SIZE, m_rdma_conn_, m_mem_pool_[i]);
+  }
+  return true;
 }
 
 /**
@@ -40,66 +50,50 @@ bool LocalEngine::alive() { return true; }
  * @param {string} value
  * @return {bool} true for success
  */
-bool LocalEngine::write(const std::string key, const std::string value) {
-  assert(m_rdma_conn_ != nullptr);
-  internal_value_t internal_value;
-  uint64_t remote_addr;
-  uint32_t rkey;
-
+bool LocalEngine::write(const std::string &key, const std::string &value) {
+  // hash 分区
   int index = std::hash<std::string>()(key) & (SHARDING_NUM - 1);
-  m_mutex_[index].lock();
+  // printf("index: %d\n", index);
+
+  internal_value_t internal_value;
+  uint64_t remote_addr = 0;
+  uint32_t offset = 0;
   bool found = false;
 
-  /* Use the corresponding shard hash map to look for key. */
-  hash_map_slot *it = m_hash_map[index].find(key);
-
-  if (it) {
-    /* Reuse the old addr. In this case, the new value size should be the same
-     * with old one. TODO: Solve the situation that the new value size is larger
-     * than the old  one */
-    remote_addr = it->internal_value.remote_addr;
-    rkey = it->internal_value.rkey;
-    found = true;
-  } else {
-    /* Not written yet, get the memory first. */
-    if (m_rdma_mem_pool_->get_mem(value.size(), remote_addr, rkey)) {
+  m_mutex_[index].lock();
+  /* 先看看这个数据是不是之前写过 */
+  hash_map_slot *it = m_hash_map_[index].find(key);
+  if (!it) {
+    /* 新写入的话就申请一个 addr 和 offset */
+    if (m_mem_pool_[index]->get_remote_mem(value.size(), remote_addr, offset)) {
       m_mutex_[index].unlock();
       return false;
     }
-    // printf("get mem %lld %d\n", remote_addr, rkey);
+  } else {
+    /* 直接用原来的 addr 和 offset */
+    remote_addr = it->internal_value.remote_addr;
+    offset = it->internal_value.offset;
+    found = true;
   }
   m_mutex_[index].unlock();
 
-  /* Optimization: local node could cache some hot data. No need to write the
-   * data to the remote for each insertion. Moving local data to the remote
-   * could be done in the background instead of the critical path. */
-  /* Also, we can batch some KV pairs together, writing them to remote in one
-   * RDMA write in the background */
+  /* 写入缓存，由缓存负责写入到remote */
+  m_cache_[index]->Insert(remote_addr, offset, value.size(), value.c_str());
 
-  int ret = m_rdma_conn_->remote_write((void *)value.c_str(), value.size(),
-                                       remote_addr, rkey);
-  if (ret) return false;
-  // printf("write key: %s, value: %s, %lld %d\n", key.c_str(), value.c_str(),
-  //        remote_addr, rkey);
-  if (found) return true; /* no need to update hash map */
+  if (found) {
+    return true; /* no need to update hash map */
+  }
 
-  /* Update the hash info. */
   internal_value.remote_addr = remote_addr;
-  internal_value.rkey = rkey;
-  internal_value.size = value.size();
-
-  /* Optimization: To support concurrent insertion */
+  internal_value.offset = offset;
   m_mutex_[index].lock();
-
   /* Fetch a new slot from slot_array, do not need to new. */
-  hash_map_slot *new_slot = &hash_slot_array[slot_cnt.fetch_add(1)];
-
+  hash_map_slot *new_slot = &m_hash_slot_array_[m_slot_cnt_.fetch_add(1)];
   /* Update the hash_map. */
-  m_hash_map[index].insert(key, internal_value, new_slot);
-  
+  m_hash_map_[index].insert(key, internal_value, new_slot);
   m_mutex_[index].unlock();
   return true;
-}
+};
 
 /**
  * @description: read value from engine via key
@@ -107,23 +101,27 @@ bool LocalEngine::write(const std::string key, const std::string value) {
  * @param {string} &value
  * @return {bool}  true for success
  */
-bool LocalEngine::read(const std::string key, std::string &value) {
+bool LocalEngine::read(const std::string &key, std::string &value) {
   int index = std::hash<std::string>()(key) & (SHARDING_NUM - 1);
+  // printf("index: %d\n", index);
+
+  /* 保存 start_addr 和 offset 的结构体  */
   internal_value_t inter_val;
+  /* 从hash表查 start_addr 和 offset */
   m_mutex_[index].lock();
-  hash_map_slot *it = m_hash_map[index].find(key);
+  hash_map_slot *it = m_hash_map_[index].find(key);
   if (!it) {
     m_mutex_[index].unlock();
     return false;
   }
   inter_val = it->internal_value;
   m_mutex_[index].unlock();
-  value.resize(inter_val.size, '0');
-  if (m_rdma_conn_->remote_read((void *)value.c_str(), inter_val.size,
-                                inter_val.remote_addr, inter_val.rkey))
+
+  value.resize(VALUE_LEN, 'a');
+  /* 从cache读数据，如果cache miss，cache会remote read把数据读到本地再返回 */
+  if (!m_cache_[index]->Find(inter_val.remote_addr, inter_val.offset, VALUE_LEN, (char *)value.c_str())) {
     return false;
-  // printf("read key: %s, value: %s, size:%d, %lld %d\n", key.c_str(),
-  //        value.c_str(), value.size(), inter_val.remote_addr, inter_val.rkey);
+  }
   return true;
 }
 
