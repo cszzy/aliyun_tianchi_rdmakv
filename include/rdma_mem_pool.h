@@ -2,7 +2,7 @@
 
 #include "rdma_conn_manager.h"
 
-#define RDMA_ALLOCATE_SIZE (1 << 28ul)
+#define RDMA_ALLOCATE_SIZE (1 << 26ul)
 
 namespace kv {
 class RDMAMemPool {
