@@ -28,6 +28,18 @@ static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 
 namespace kv {
 
+// calculate fingerprint
+  static inline char hashcode1B(const char *x)
+  {
+      uint64_t a = *(uint64_t*)x;
+      uint64_t b = *(uint64_t*)(x + 8);
+      a ^= b;
+      a ^= a >> 32;
+      a ^= a >> 16;
+      a ^= a >> 8;
+      return (char)(a & 0xffUL);
+  }
+
 typedef struct __attribute__((packed)) internal_value_t {
   uint64_t remote_addr;
   uint16_t offset;
@@ -38,6 +50,7 @@ typedef struct __attribute__((packed)) internal_value_t {
 class __attribute__((packed)) hash_map_slot {
  public:
   char key[16];
+  // char finger; // key的finger，加速比较
   internal_value_t internal_value;
   hash_map_slot *next;
 };
@@ -65,8 +78,11 @@ class __attribute__((packed)) hash_map_t {
       return nullptr;
     }
     hash_map_slot *cur = m_bucket[index];
+    // char key_finger = hashcode1B(key.c_str());
     while (cur) {
-      if (memcmp(cur->key, key.c_str(), 16) == 0) {
+      if (
+        // key_finger == cur->finger && 
+        memcmp(cur->key, key.c_str(), 16) == 0) {
         m_bucket_lock[index].unlock();
         return cur;
       }
@@ -80,6 +96,7 @@ class __attribute__((packed)) hash_map_t {
   void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
+    // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
     m_bucket_lock[index].lock();
     if (!m_bucket[index]) {

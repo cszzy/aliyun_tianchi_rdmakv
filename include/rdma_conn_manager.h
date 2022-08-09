@@ -3,7 +3,9 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <atomic>
 #include "rdma_conn.h"
+#include "conqueue.h"
 
 namespace kv {
 
@@ -13,26 +15,27 @@ class ConnQue {
   ConnQue() {}
 
   void enqueue(RDMAConnection *conn) {
-    std::unique_lock<std::mutex> lock(m_mutex_);
-    m_queue_.push(conn);
+    // std::unique_lock<std::mutex> lock(m_mutex_);
+    m_queue_.enqueue(conn);
   };
 
   RDMAConnection *dequeue() {
-  retry:
-    std::unique_lock<std::mutex> lock(m_mutex_);
-    while (m_queue_.empty()) {
-      lock.unlock();
-      std::this_thread::yield();
-      goto retry;
+    RDMAConnection *conn;
+  // retry:
+    // std::unique_lock<std::mutex> lock(m_mutex_);
+    while (!m_queue_.try_dequeue(conn)) {
+      // lock.unlock();
+      // std::this_thread::yield();
+      // goto retry;
     }
-    RDMAConnection *conn = m_queue_.front();
-    m_queue_.pop();
+    // m_queue_.pop();
     return conn;
   }
 
  private:
-  std::queue<RDMAConnection *> m_queue_;
-  std::mutex m_mutex_;
+  // std::queue<RDMAConnection *> m_queue_;
+  // std::mutex m_mutex_;
+  moodycamel::ConcurrentQueue<RDMAConnection *> m_queue_;
 };
 
 /* The RDMA connection manager */
