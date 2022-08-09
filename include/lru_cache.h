@@ -172,6 +172,9 @@ class LRUCache {
       PushToFront(node);
       node->clean = false;
     } else {
+      if (free_nodes.empty()) {
+        Evict();
+      }
       auto node = allocate_node(addr);
       if (node == nullptr) {
         printf("node is nullptr\n");
@@ -187,9 +190,6 @@ class LRUCache {
       memcpy(node->value.str + offset, str, size);
       node->clean = false;
       total_size++;
-      if (total_size >= capacity) {
-        Evict();
-      }
     }
     return true;
   }
@@ -224,6 +224,9 @@ class LRUCache {
       DeleteNode(node);
       PushToFront(node);
     } else {
+      if (free_nodes.empty()) {
+        Evict();
+      }
       auto node = allocate_node(addr);
       int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
       if (ret) {
@@ -234,9 +237,6 @@ class LRUCache {
       PushToFront(node);
       memcpy(str, node->value.str + offset, size);
       total_size++;
-      if (total_size >= capacity) {
-        Evict();
-      }
     }
     return true;
   }

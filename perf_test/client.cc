@@ -34,7 +34,7 @@ int main() {
   auto keys = genPerfKey(kKeyNum);
   int *zipf_index = new int[read_write_mix_op * 16];
   for (int i = 0; i < read_write_mix_op * 16; i++) {
-    zipf_index[i] = zipf(kKeyNum, 1.3) - 1;
+    zipf_index[i] = zipf(kKeyNum, 2) - 1;
   }
 
   printf(" ============= start write ==============>\n");
