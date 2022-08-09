@@ -5,6 +5,9 @@
 #include "rdma_conn_manager.h"
 #include "rdma_mem_pool.h"
 
+extern std::atomic<size_t> miss_times;
+extern std::atomic<size_t> evict_times;
+
 namespace kv {
 // cache entry
 struct CacheEntry {
@@ -127,6 +130,7 @@ class LRUCache {
     // 2. 从链表和hash map中删除节点，并放入到free hash list中
     auto node = tail;
     if (!node->clean) {
+      evict_times++;
       int ret = node->remote_write(rdma, mem_pool->get_rkey(node->key));
       if (ret) {
         printf("Evict write back error!\n");
@@ -172,6 +176,7 @@ class LRUCache {
       PushToFront(node);
       node->clean = false;
     } else {
+      miss_times++;
       if (free_nodes.empty()) {
         Evict();
       }
@@ -224,6 +229,7 @@ class LRUCache {
       DeleteNode(node);
       PushToFront(node);
     } else {
+      miss_times++;
       if (free_nodes.empty()) {
         Evict();
       }

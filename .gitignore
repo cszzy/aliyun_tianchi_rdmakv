@@ -1,5 +1,5 @@
 .vscode
 build
-test
+perf_test
 *.svg
 .DS_Store
