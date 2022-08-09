@@ -50,10 +50,13 @@ typedef struct __attribute__((packed)) internal_value_t {
 class __attribute__((packed)) hash_map_slot {
  public:
   char key[16];
-  // char finger; // key的finger，加速比较
   internal_value_t internal_value;
-  hash_map_slot *next;
+  // hash_map_slot *next;
+  char finger; // key的finger，加速比较
+  uint8_t next[6];
 };
+
+#define READ_PTR(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
 
 // const int hash_map_slot_size = sizeof(hash_map_slot);
 
@@ -78,15 +81,15 @@ class __attribute__((packed)) hash_map_t {
       return nullptr;
     }
     hash_map_slot *cur = m_bucket[index];
-    // char key_finger = hashcode1B(key.c_str());
+    char key_finger = hashcode1B(key.c_str());
     while (cur) {
       if (
-        // key_finger == cur->finger && 
+        key_finger == cur->finger && 
         memcmp(cur->key, key.c_str(), 16) == 0) {
         m_bucket_lock[index].unlock();
         return cur;
       }
-      cur = cur->next;
+      cur = (hash_map_slot *)READ_PTR(cur->next);
     }
     m_bucket_lock[index].unlock();
     return nullptr;
@@ -96,7 +99,7 @@ class __attribute__((packed)) hash_map_t {
   void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
-    // new_slot->finger = hashcode1B(new_slot->key);
+    new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
     m_bucket_lock[index].lock();
     if (!m_bucket[index]) {
@@ -105,7 +108,8 @@ class __attribute__((packed)) hash_map_t {
       /* Insert into the head. */
       hash_map_slot *tmp = m_bucket[index];
       m_bucket[index] = new_slot;
-      new_slot->next = tmp;
+      // new_slot->next = tmp;
+      memcpy(new_slot->next, &tmp, 6);
     }
     m_bucket_lock[index].unlock();
   }
@@ -145,7 +149,7 @@ class LocalEngine : public Engine {
   std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
 
   RDMAMemPool *m_mem_pool_[SHARDING_NUM];
-  std::mutex m_mutex_[SHARDING_NUM];
+  // std::mutex m_mutex_[SHARDING_NUM];
   LRUCache *m_cache_[SHARDING_NUM];
 };
 
