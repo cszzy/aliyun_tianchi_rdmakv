@@ -22,9 +22,3 @@ add_subdirectory(include)
 add_subdirectory(source)
 
 add_subdirectory(perf_test)
-
-add_executable(remote test/remote.cc)
-add_executable(local test/local.cc)
-
-target_link_libraries(remote polarkv rdmacm ibverbs ibumad pci)
-target_link_libraries(local polarkv rdmacm ibverbs ibumad pci)
