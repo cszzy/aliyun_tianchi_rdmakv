@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 2.8)
 project(POLAR_CONTEST)
 
-set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE "Release")
 
 set(RDMA_LIB "-lrdmacm -libverbs -libumad -lpci")
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++17 ${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "-pthread -ldl -lrt ${RDMA_LIB} -${CMAKE_CXX_FLAGS}")
 
 if( CMAKE_BUILD_TYPE STREQUAL "Debug" )
