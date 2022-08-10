@@ -17,8 +17,9 @@
 #include "rdma_mem_pool.h"
 #include "string"
 #include "thread"
-#include "unordered_map"
+#include <unordered_map>
 #include "spinlock.h"
+#include "rwlock.h"
 
 #define VALUE_LEN 128
 #define SHARDING_NUM 64
@@ -52,7 +53,7 @@ class __attribute__((packed)) hash_map_slot {
   char key[16];
   internal_value_t internal_value;
   // hash_map_slot *next;
-  char finger; // key的finger，加速比较
+  // char finger; // key的finger，加速比较
   uint8_t next[6];
 };
 
@@ -63,7 +64,7 @@ class __attribute__((packed)) hash_map_slot {
 class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
-  Spinlock m_bucket_lock[BUCKET_NUM];
+  MyLock m_bucket_lock[BUCKET_NUM];
 
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
@@ -75,23 +76,20 @@ class __attribute__((packed)) hash_map_t {
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
-    m_bucket_lock[index].lock();
+    // char key_finger = hashcode1B(key.c_str());
+    ReadLock rl(m_bucket_lock[index]);
     if (!m_bucket[index]) {
-      m_bucket_lock[index].unlock();
       return nullptr;
     }
     hash_map_slot *cur = m_bucket[index];
-    char key_finger = hashcode1B(key.c_str());
     while (cur) {
       if (
-        key_finger == cur->finger && 
+        // key_finger == cur->finger && 
         memcmp(cur->key, key.c_str(), 16) == 0) {
-        m_bucket_lock[index].unlock();
         return cur;
       }
       cur = (hash_map_slot *)READ_PTR(cur->next);
     }
-    m_bucket_lock[index].unlock();
     return nullptr;
   }
 
@@ -99,9 +97,9 @@ class __attribute__((packed)) hash_map_t {
   void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     memcpy(new_slot->key, key.c_str(), 16);
-    new_slot->finger = hashcode1B(new_slot->key);
+    // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
-    m_bucket_lock[index].lock();
+    WriteLock wl(m_bucket_lock[index]);
     if (!m_bucket[index]) {
       m_bucket[index] = new_slot;
     } else {
@@ -111,7 +109,6 @@ class __attribute__((packed)) hash_map_t {
       // new_slot->next = tmp;
       memcpy(new_slot->next, &tmp, 6);
     }
-    m_bucket_lock[index].unlock();
   }
 };
 
