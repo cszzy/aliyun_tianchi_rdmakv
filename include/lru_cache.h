@@ -4,6 +4,7 @@
 #include "rdma_conn.h"
 #include "rdma_conn_manager.h"
 #include "rdma_mem_pool.h"
+#include "spinlock.h"
 
 // #define STATISTIC
 
@@ -21,7 +22,7 @@ struct CacheEntry {
 
 // 把cache entry封装成一个node，用于实现double-linked list
 struct ListNode {
-  ListNode() : prev(nullptr), next(nullptr) {}
+  ListNode() : prev(nullptr), next(nullptr), clean(true) {}
   ListNode(const uint64_t &k, const CacheEntry &v) : key(k), value(v), prev(nullptr), next(nullptr) {}
 
   /* 从remote读数据到当前 cache entry 的buffer */
@@ -51,64 +52,38 @@ const int ListNode_size = sizeof(ListNode);
 
 class LRUCache {
  private:
-  uint64_t capacity;                                 /* cache 容量，可容纳的cache entry数 */
-  uint64_t total_size;                               /* 当前cacche的大小，当前所拥有的cache entry数量 */
   ListNode *head;                                    /* 双向链表头节点 */
   ListNode *tail;                                    /* 双向链表尾节点 */
   std::unordered_map<uint64_t, ListNode *> hash_map; /* hash表 key是remote_addr，value是包含key和entry的节点 */
   ConnectionManager *rdma;                           /* 用于 rdma remote write/read */
-  /* 空闲的 cache entry 节点，淘汰的节点可以放到free
-   * list里面，避免经常free/new节点 */
-  std::queue<ListNode *> free_nodes;
-
-  int evit_cnt = 0;
-
-  typedef std::mutex LRUMutex;
+  typedef Spinlock LRUMutex;
   LRUMutex mutex_;
   RDMAMemPool *mem_pool; /* mem_pool 中保存了 remote addr
                             的rkey，可以调用mem_pool的接口来查询 */
 
-  ListNode *allocate_node(uint64_t key) {
-    // get a node frome free list
-    if (free_nodes.size() == 0) {
-      printf("allocate_node failed, no free nodes\n");
-      return nullptr;
-    }
-    auto node = free_nodes.front();
-    free_nodes.pop();
-    node->key = key;
-    node->clean = true;
-    node->prev = nullptr;
-    node->next = nullptr;
-    return node;
-  }
-
-  void DeleteNode(ListNode *node) {
-    // delete a node from the double-linked list
-    auto prev = node->prev;
-    prev->next = node->next;
-    node->next->prev = prev;
-  }
-
-  void PushToFront(ListNode *node) {
+  inline void PushToFront(ListNode *node) {
     // push the node to the front of the double-linked list
-    if (head == nullptr && tail == nullptr) {
-      head = tail = node;
-      node->next = node->prev = node;
-      return;
-    }
     if (node == head) return;
-    tail->next = node;
-    head->prev = node;
-    node->prev = tail;
+
+    if (node == tail) {
+      tail = node->prev;
+      tail->next = nullptr;
+    } else {
+      node->prev->next = node->next;
+      node->next->prev = node->prev;
+    }
+
+    // push to head
+    node->prev = nullptr;
     node->next = head;
+    head->prev = node;
     head = node;
   }
 
  public:
   LRUCache() {}
   LRUCache(uint64_t max_size, ConnectionManager *rdma_conn, RDMAMemPool *pool)
-      : capacity(max_size), total_size(0), head(nullptr), tail(nullptr), rdma(rdma_conn), mem_pool(pool) {
+      : head(nullptr), tail(nullptr), rdma(rdma_conn), mem_pool(pool) {
     uint32_t size = max_size * CACHE_ENTRY_MEM_SIZE;
     // char *mem = (char *)malloc(size);
     // uint32_t lkey = 0;
@@ -117,17 +92,25 @@ class LRUCache {
        的buffer */
     // uint64_t addr = (uint64_t)mem;
     // rdma->register_local_memory(addr, size, lkey);
+    ListNode *prev = nullptr;
     for (int i = 0; i < max_size; i++) {
-      // 预先分配内存 cache entry node， 并放入 free node list中
+      // 预先分配内存 cache entry node
       ListNode *tmp = new ListNode();
-      tmp->prev = tmp->next = nullptr;
-      tmp->clean = true;
       tmp->value.str = new char[CACHE_ENTRY_MEM_SIZE];
-      free_nodes.push(tmp);
+      // free_nodes.push(tmp);
+      if (prev) {
+        prev->next = tmp;
+        tmp->prev = prev;
+      } else {
+        head = tmp;
+      }
+      prev = tmp;
     }
+    tail = prev;
   }
 
-  void Evict() {
+  // 返回淘汰的node
+  ListNode *Evict() {
     // 把 tail 的node淘汰掉，
     // 1. 如果 cache entry 的数据被修改过，需要remote write写回到 remote
     // node->remote_write(rdma,  mem_pool->get_rkey(node->key));
@@ -141,18 +124,10 @@ class LRUCache {
       if (ret) {
         printf("Evict write back error!\n");
       }
-    }
-    if (tail == head) { // 如果只有一个节点
-      tail = head = nullptr;
-    } else {
-      tail->prev->next = head;
-      head->prev = tail->prev;
-      tail = head->prev;
+      node->clean = true;
     }
     hash_map.erase(node->key);
-    free_nodes.push(node);
-    total_size--;
-    // printf("evit: \t%d\r", ++evit_cnt);
+    return node;
   }
 
   bool Insert(uint64_t addr, uint32_t offset, uint32_t size, const char *str) {
@@ -173,25 +148,24 @@ class LRUCache {
     // size);
     // 2.3.
     // 由于新增加了节点，需要判断cache已经满了，如果是，需要淘汰cache数据
-    std::lock_guard<LRUMutex> guard{mutex_};
+    // std::lock_guard<LRUMutex> guard{mutex_};
+    mutex_.lock();
     if (hash_map.find(addr) != hash_map.end()) {
       // printf("insert find\n");
       auto node = hash_map[addr];
-      memcpy(node->value.str + offset, str, size);
-      DeleteNode(node);
       PushToFront(node);
       node->clean = false;
+      mutex_.unlock();
+      memcpy(node->value.str + offset, str, size);
     } else {
       #ifdef STATISTIC
       miss_times++;
       #endif
-      if (free_nodes.empty()) {
-        Evict();
-      }
-      auto node = allocate_node(addr);
+      ListNode *node = Evict();
       if (node == nullptr) {
         printf("node is nullptr\n");
       }
+      node->key = addr;
       hash_map[addr] = node;
       auto rkey = mem_pool->get_rkey(node->key);
       PushToFront(node);
@@ -200,9 +174,9 @@ class LRUCache {
         printf("remote_read error\n");
         return false;
       }
-      memcpy(node->value.str + offset, str, size);
       node->clean = false;
-      total_size++;
+      mutex_.unlock();
+      memcpy(node->value.str + offset, str, size);
     }
     return true;
   }
@@ -229,21 +203,20 @@ class LRUCache {
             hash_map[addr]  =  node;
                 PushToFront(node);
                 memcpy(str,  node->value.str  +  offset,  size); */
-    std::lock_guard<LRUMutex> guard{mutex_};
+    // std::lock_guard<LRUMutex> guard{mutex_};
+    mutex_.lock();
     if (hash_map.find(addr) != hash_map.end()) {
       // printf("Find find\n");
       auto node = hash_map[addr];
-      memcpy(str, node->value.str + offset, size);
-      DeleteNode(node);
       PushToFront(node);
+      mutex_.unlock();
+      memcpy(str, node->value.str + offset, size);
     } else {
       #ifdef STATISTIC
       miss_times++;
       #endif
-      if (free_nodes.empty()) {
-        Evict();
-      }
-      auto node = allocate_node(addr);
+      ListNode *node = Evict();
+      node->key = addr;
       int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
       if (ret) {
         printf("remote_read error\n");
@@ -251,8 +224,8 @@ class LRUCache {
       }
       hash_map[addr] = node;
       PushToFront(node);
+      mutex_.unlock();
       memcpy(str, node->value.str + offset, size);
-      total_size++;
     }
     return true;
   }

@@ -39,7 +39,7 @@ int main() {
   auto keys = genPerfKey(kKeyNum);
   int *zipf_index = new int[read_write_mix_op * 16];
   for (int i = 0; i < read_write_mix_op * 16; i++) {
-    zipf_index[i] = zipf(kKeyNum, 2) - 1;
+    zipf_index[i] = zipf(kKeyNum, 1.3) - 1;
   }
 
   printf(" ============= start write ==============>\n");
@@ -70,7 +70,7 @@ int main() {
     auto time_delta = time_end - time_now;
     auto count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
     std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
-    std::cout << "miss times: " << miss_times << "evict times: " << evict_times << std::endl;
+    std::cout << "miss times: " << miss_times << " evict times: " << evict_times << std::endl;
   }
 
   printf(" ============= start read & write ===============>\n");
@@ -118,7 +118,7 @@ int main() {
     auto time_delta = time_end - time_now;
     auto count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
     std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
-    std::cout << "miss times: " << miss_times << "evict times: " << evict_times << std::endl;
+    std::cout << "miss times: " << miss_times << " evict times: " << evict_times << std::endl;
   }
   local_engine->stop();
   delete local_engine;
