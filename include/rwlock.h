@@ -57,4 +57,8 @@ public:
     }
 };
 
+typedef std::shared_mutex MyLock;
+typedef std::unique_lock<MyLock> WriteLock;
+typedef std::shared_lock<MyLock> ReadLock;
+
 } /* namespace linduo */

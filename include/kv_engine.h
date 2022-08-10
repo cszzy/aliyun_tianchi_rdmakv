@@ -64,7 +64,9 @@ class __attribute__((packed)) hash_map_slot {
 class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
-  rw_spin_lock m_bucket_lock[BUCKET_NUM];
+  // rw_spin_lock m_bucket_lock[BUCKET_NUM];
+  MyLock m_bucket_lock[BUCKET_NUM / 8]; // 每8行共用一个读写锁
+  // char m_bucket_lock[64][BUCKET_NUM / 8];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
     for (int i = 0; i < BUCKET_NUM; ++i) {
@@ -72,14 +74,56 @@ class __attribute__((packed)) hash_map_t {
     }
   }
 
+  // /* Find the corresponding key. */
+  // hash_map_slot *find(const std::string &key) {
+  //   int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
+  //   // char key_finger = hashcode1B(key.c_str());
+  //   m_bucket_lock[index].lock_reader();
+  //   hash_map_slot *cur = m_bucket[index];
+  //   if (!cur) {
+  //     m_bucket_lock[index].unlock_reader();
+  //     return nullptr;
+  //   }
+    
+  //   while (cur) {
+  //     if (
+  //       // key_finger == cur->finger && 
+  //       memcmp(cur->key, key.c_str(), 16) == 0) {
+  //       m_bucket_lock[index].unlock_reader();
+  //       return cur;
+  //     }
+  //     cur = (hash_map_slot *)READ_PTR(cur->next);
+  //   }
+  //   m_bucket_lock[index].unlock_reader();
+  //   return nullptr;
+  // }
+
+  // /* Insert into the head of the list. */
+  // void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
+  //   int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
+  //   memcpy(new_slot->key, key.c_str(), 16);
+  //   // new_slot->finger = hashcode1B(new_slot->key);
+  //   new_slot->internal_value = internal_value;
+  //   m_bucket_lock[index].lock_writer();
+  //   if (!m_bucket[index]) {
+  //     m_bucket[index] = new_slot;
+  //   } else {
+  //     /* Insert into the head. */
+  //     hash_map_slot *tmp = m_bucket[index];
+  //     m_bucket[index] = new_slot;
+  //     // new_slot->next = tmp;
+  //     memcpy(new_slot->next, &tmp, 6);
+  //   }
+  //   m_bucket_lock[index].unlock_writer();
+  // }
+
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     // char key_finger = hashcode1B(key.c_str());
-    m_bucket_lock[index].lock_reader();
+    ReadLock rl(m_bucket_lock[index/8]);
     hash_map_slot *cur = m_bucket[index];
     if (!cur) {
-      m_bucket_lock[index].unlock_reader();
       return nullptr;
     }
     
@@ -87,12 +131,10 @@ class __attribute__((packed)) hash_map_t {
       if (
         // key_finger == cur->finger && 
         memcmp(cur->key, key.c_str(), 16) == 0) {
-        m_bucket_lock[index].unlock_reader();
         return cur;
       }
       cur = (hash_map_slot *)READ_PTR(cur->next);
     }
-    m_bucket_lock[index].unlock_reader();
     return nullptr;
   }
 
@@ -102,7 +144,7 @@ class __attribute__((packed)) hash_map_t {
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
-    m_bucket_lock[index].lock_writer();
+    WriteLock wl(m_bucket_lock[index/8]);
     if (!m_bucket[index]) {
       m_bucket[index] = new_slot;
     } else {
@@ -112,7 +154,6 @@ class __attribute__((packed)) hash_map_t {
       // new_slot->next = tmp;
       memcpy(new_slot->next, &tmp, 6);
     }
-    m_bucket_lock[index].unlock_writer();
   }
 };
 
