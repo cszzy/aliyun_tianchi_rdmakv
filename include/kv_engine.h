@@ -42,8 +42,9 @@ namespace kv {
   }
 
 typedef struct __attribute__((packed)) internal_value_t {
-  uint64_t remote_addr;
+  // uint64_t remote_addr;
   uint16_t offset;
+  uint8_t remote_addr[6];
 } internal_value_t;
 
 /* One slot stores the key and the meta info of the value which
@@ -65,8 +66,8 @@ class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  MyLock m_bucket_lock[BUCKET_NUM / 8]; // 每8行共用一个读写锁
-  // char m_bucket_lock[64][BUCKET_NUM / 8];
+  MyLock m_bucket_lock[BUCKET_NUM/4]; // 每8行共用一个读写锁
+  // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
     for (int i = 0; i < BUCKET_NUM; ++i) {
@@ -121,7 +122,7 @@ class __attribute__((packed)) hash_map_t {
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
     // char key_finger = hashcode1B(key.c_str());
-    ReadLock rl(m_bucket_lock[index/8]);
+    ReadLock rl(m_bucket_lock[index/4]);
     hash_map_slot *cur = m_bucket[index];
     if (!cur) {
       return nullptr;
@@ -144,7 +145,7 @@ class __attribute__((packed)) hash_map_t {
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
-    WriteLock wl(m_bucket_lock[index/8]);
+    WriteLock wl(m_bucket_lock[index/4]);
     if (!m_bucket[index]) {
       m_bucket[index] = new_slot;
     } else {
@@ -173,6 +174,7 @@ class Engine {
 /* Local-side engine */
 class LocalEngine : public Engine {
  public:
+ LocalEngine() {std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; };
   ~LocalEngine(){};
 
   bool start(const std::string addr, const std::string port) override;

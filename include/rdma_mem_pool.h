@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rwlock.h"
 #include "rdma_conn_manager.h"
 
 #define RDMA_ALLOCATE_SIZE (1 << 26ul)
@@ -21,7 +22,8 @@ class RDMAMemPool {
   int get_remote_mem(uint64_t size, uint64_t &start_addr, uint32_t &offset);
 
   uint32_t get_rkey(uint64_t addr) {
-    std::lock_guard<std::mutex> guard{m_mem_rkey_lock_};
+    // std::lock_guard<std::mutex> guard{m_mem_rkey_lock_};
+    ReadLock rl(m_mem_rkey_lock_);
     if (m_mem_rkey_.find(addr) == m_mem_rkey_.end()) {
       return 0;
     }
@@ -41,6 +43,7 @@ class RDMAMemPool {
   // local cache version
   std::vector<rdma_mem_t> m_used_remote_mem_; /* the used mem */
   std::unordered_map<uint64_t, uint32_t> m_mem_rkey_;
-  std::mutex m_mem_rkey_lock_;
+  // std::mutex m_mem_rkey_lock_;
+  MyLock m_mem_rkey_lock_;
 };
 }  // namespace kv

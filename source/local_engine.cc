@@ -72,7 +72,7 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
     }
   } else {
     /* 直接用原来的 addr 和 offset */
-    remote_addr = it->internal_value.remote_addr;
+    remote_addr = READ_PTR(it->internal_value.remote_addr);
     offset = it->internal_value.offset;
     found = true;
   }
@@ -85,7 +85,8 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
     return true; /* no need to update hash map */
   }
 
-  internal_value.remote_addr = remote_addr;
+  memcpy(internal_value.remote_addr, &remote_addr, 6);
+  // internal_value.remote_addr = remote_addr;
   internal_value.offset = offset;
   // m_mutex_[index].lock();
   /* Fetch a new slot from slot_array, do not need to new. */
@@ -120,7 +121,7 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
 
   value.resize(VALUE_LEN, 'a');
   /* 从cache读数据，如果cache miss，cache会remote read把数据读到本地再返回 */
-  if (!m_cache_[index]->Find(inter_val.remote_addr, inter_val.offset, VALUE_LEN, (char *)value.c_str())) {
+  if (!m_cache_[index]->Find(READ_PTR(inter_val.remote_addr), inter_val.offset, VALUE_LEN, (char *)value.c_str())) {
     return false;
   }
   return true;

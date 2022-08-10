@@ -52,7 +52,8 @@ retry:
      */
     
     {
-      std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
+      // std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
+      WriteLock wl(m_mem_rkey_lock_);
       m_mem_rkey_[start_addr] = m_rkey_;
     }
     return 0;
@@ -72,7 +73,8 @@ retry:
   }
   m_pos_ = 0;
   {
-    std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
+    // std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
+    WriteLock wl(m_mem_rkey_lock_);
     m_mem_rkey_[m_current_mem_] = m_rkey_;
   }
 
