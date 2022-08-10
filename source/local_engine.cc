@@ -14,7 +14,7 @@ namespace kv {
 bool LocalEngine::start(const std::string addr, const std::string port) {
   m_rdma_conn_ = new ConnectionManager();
   if (m_rdma_conn_ == nullptr) return -1;
-  if (m_rdma_conn_->init(addr, port, 4, 20 + SHARDING_NUM)) {
+  if (m_rdma_conn_->init(addr, port, 4, 20)) {
     printf("m_rdma_conn failed\n");
     return false;
   }
