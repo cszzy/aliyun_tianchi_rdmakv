@@ -58,7 +58,8 @@ class LRUCache {
   ConnectionManager *rdma;                           /* 用于 rdma remote write/read */
   // typedef Spinlock LRUMutex;
   // LRUMutex mutex_;
-  MyLock mutex_;
+  // MyLock mutex_;
+  rw_spin_lock mutex_;
   RDMAMemPool *mem_pool; /* mem_pool 中保存了 remote addr
                             的rkey，可以调用mem_pool的接口来查询 */
 
@@ -85,7 +86,6 @@ class LRUCache {
   LRUCache() {}
   LRUCache(uint64_t max_size, ConnectionManager *rdma_conn, RDMAMemPool *pool)
       : head(nullptr), tail(nullptr), rdma(rdma_conn), mem_pool(pool) {
-
     ListNode *prev = nullptr;
     for (int i = 0; i < max_size; i++) {
       // 预先分配内存 cache entry node
@@ -121,50 +121,56 @@ class LRUCache {
   }
 
   bool Insert(uint64_t addr, uint32_t offset, uint32_t size, const char *str) {
-    WriteLock wl(mutex_);
     ListNode *node = nullptr;
     {
-      auto iter = hash_map.find(addr);
-      if (iter != hash_map.end()) {
-        node = iter->second;
+      // WriteLock wl(mutex_);
+      mutex_.lock_writer();
+      {
+        auto iter = hash_map.find(addr);
+        if (iter != hash_map.end()) {
+          node = iter->second;
+        }
       }
+
+      if (node != nullptr) {
+        node->clean = false;
+      } else {
+        #ifdef STATISTIC
+        miss_times++;
+        #endif
+        node = Evict();
+        if (node == nullptr) {
+          printf("node is nullptr\n");
+        }
+        node->key = addr;
+        hash_map[addr] = node;
+        auto rkey = mem_pool->get_rkey(node->key);
+        PushToFront(node);
+        int ret = node->remote_read(rdma, rkey);
+        if (ret) {
+          printf("remote_read error\n");
+          return false;
+        }
+        node->clean = false;
+      }
+      mutex_.unlock_writer();
     }
 
-    if (node != nullptr) {
-      memcpy(node->value.str + offset, str, size);
-      node->clean = false;
-    } else {
-      #ifdef STATISTIC
-      miss_times++;
-      #endif
-      node = Evict();
-      if (node == nullptr) {
-        printf("node is nullptr\n");
-      }
-      node->key = addr;
-      hash_map[addr] = node;
-      auto rkey = mem_pool->get_rkey(node->key);
-      PushToFront(node);
-      int ret = node->remote_read(rdma, rkey);
-      if (ret) {
-        printf("remote_read error\n");
-        return false;
-      }
-      node->clean = false;
-      memcpy(node->value.str + offset, str, size);
-    }
+    memcpy(node->value.str + offset, str, size);
     return true;
   }
 
   bool Find(uint64_t addr, uint32_t offset, uint32_t size, char *str) {
     ListNode *node = nullptr;
     {
-      ReadLock rl(mutex_);
+      // ReadLock rl(mutex_);
+      mutex_.lock_reader();
       auto iter = hash_map.find(addr);
       if (iter != hash_map.end()) {
         node = iter->second;
         memcpy(str, node->value.str + offset, size);
       }
+      mutex_.unlock_reader();
     }
 
     if (node == nullptr) {
@@ -172,7 +178,8 @@ class LRUCache {
       miss_times++;
       #endif
       {
-        WriteLock wl(mutex_);
+        // WriteLock wl(mutex_);
+        mutex_.lock_writer();
         node = Evict();
         node->key = addr;
         int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
@@ -182,6 +189,7 @@ class LRUCache {
         }
         hash_map[addr] = node;
         PushToFront(node);
+        mutex_.unlock_writer();
       }
       memcpy(str, node->value.str + offset, size);
     }
