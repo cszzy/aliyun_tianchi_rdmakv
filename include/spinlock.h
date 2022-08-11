@@ -4,7 +4,7 @@
 #include <atomic>
 
 namespace kv {
-class __attribute__((packed)) Spinlock {
+class Spinlock {
   public:
   Spinlock() : flag(ATOMIC_FLAG_INIT) {};
   Spinlock(const Spinlock&) = delete;

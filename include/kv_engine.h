@@ -23,7 +23,7 @@
 
 #define VALUE_LEN 128
 #define SHARDING_NUM 64
-#define BUCKET_NUM 1048576
+#define BUCKET_NUM 1048575
 static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
               "RingBuffer's size must be a positive power of 2");
 
@@ -49,7 +49,7 @@ typedef struct __attribute__((packed)) internal_value_t {
 
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
-class __attribute__((packed)) hash_map_slot {
+class  hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
@@ -57,6 +57,8 @@ class __attribute__((packed)) hash_map_slot {
   // char finger; // key的finger，加速比较
   uint8_t next[6];
 };
+
+// const int a = sizeof(hash_map_slot)
 
 #define READ_PTR(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
 
@@ -66,7 +68,7 @@ class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  MyLock m_bucket_lock[BUCKET_NUM/4]; // 每8行共用一个读写锁
+  MyLock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每8行共用一个读写锁
   // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
@@ -89,7 +91,7 @@ class __attribute__((packed)) hash_map_t {
   //   while (cur) {
   //     if (
   //       // key_finger == cur->finger && 
-  //       memcmp(cur->key, key.c_str(), 16) == 0) {
+  //       memcmpx86_64(cur->key, key.c_str(), 16) == 0) {
   //       m_bucket_lock[index].unlock_reader();
   //       return cur;
   //     }
@@ -120,7 +122,7 @@ class __attribute__((packed)) hash_map_t {
 
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
-    int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
     ReadLock rl(m_bucket_lock[index/4]);
     hash_map_slot *cur = m_bucket[index];
@@ -131,7 +133,7 @@ class __attribute__((packed)) hash_map_t {
     while (cur) {
       if (
         // key_finger == cur->finger && 
-        memcmp(cur->key, key.c_str(), 16) == 0) {
+        memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
         return cur;
       }
       cur = (hash_map_slot *)READ_PTR(cur->next);
@@ -141,7 +143,7 @@ class __attribute__((packed)) hash_map_t {
 
   /* Insert into the head of the list. */
   void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
-    int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
@@ -197,7 +199,7 @@ class LocalEngine : public Engine {
   LRUCache *m_cache_[SHARDING_NUM];
 };
 
-// const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
+const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {
