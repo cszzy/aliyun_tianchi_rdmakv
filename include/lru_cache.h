@@ -45,7 +45,7 @@ struct ListNode {
   ListNode *prev;
   ListNode *next;
   /* 标记数据是否被修改，evict可以用来判读是否需要写回到remote */
-  bool clean = true;
+  bool clean;
 };
 
 const int ListNode_size = sizeof(ListNode);
@@ -56,8 +56,9 @@ class LRUCache {
   ListNode *tail;                                    /* 双向链表尾节点 */
   std::unordered_map<uint64_t, ListNode *> hash_map; /* hash表 key是remote_addr，value是包含key和entry的节点 */
   ConnectionManager *rdma;                           /* 用于 rdma remote write/read */
-  typedef Spinlock LRUMutex;
-  LRUMutex mutex_;
+  // typedef Spinlock LRUMutex;
+  // LRUMutex mutex_;
+  MyLock mutex_;
   RDMAMemPool *mem_pool; /* mem_pool 中保存了 remote addr
                             的rkey，可以调用mem_pool的接口来查询 */
 
@@ -84,14 +85,7 @@ class LRUCache {
   LRUCache() {}
   LRUCache(uint64_t max_size, ConnectionManager *rdma_conn, RDMAMemPool *pool)
       : head(nullptr), tail(nullptr), rdma(rdma_conn), mem_pool(pool) {
-    uint32_t size = max_size * CACHE_ENTRY_MEM_SIZE;
-    // char *mem = (char *)malloc(size);
-    // uint32_t lkey = 0;
-    /* 提前注册内存给 local cache 用，
-       可以把这个内存按照 CACHE_ENTRY_MEM_SIZE 大小划分给 cache entry node
-       的buffer */
-    // uint64_t addr = (uint64_t)mem;
-    // rdma->register_local_memory(addr, size, lkey);
+
     ListNode *prev = nullptr;
     for (int i = 0; i < max_size; i++) {
       // 预先分配内存 cache entry node
@@ -111,10 +105,6 @@ class LRUCache {
 
   // 返回淘汰的node
   ListNode *Evict() {
-    // 把 tail 的node淘汰掉，
-    // 1. 如果 cache entry 的数据被修改过，需要remote write写回到 remote
-    // node->remote_write(rdma,  mem_pool->get_rkey(node->key));
-    // 2. 从链表和hash map中删除节点，并放入到free hash list中
     auto node = tail;
     if (!node->clean) {
       #ifdef STATISTIC
@@ -131,37 +121,23 @@ class LRUCache {
   }
 
   bool Insert(uint64_t addr, uint32_t offset, uint32_t size, const char *str) {
-    // 1. 用addr 作为key，查hash map
-    // 1.1 如果找到了，把str的数据写入到应的 cache entry
-    // 的buffer中，注意是从offset的偏移量开始写
-    // 1.2.
-    // 需要把对应节点移动到头部，以维护LRU
+    WriteLock wl(mutex_);
+    ListNode *node = nullptr;
+    {
+      auto iter = hash_map.find(addr);
+      if (iter != hash_map.end()) {
+        node = iter->second;
+      }
+    }
 
-    // 2.1. 如果没找到，则以 addr 为key新增加一个cache entry，
-    /* 代码逻辑：
-            ListNode  *node  =  allocate_node(addr);
-            hash_map[addr]  =  node;
-            PushToFront(node);
-            // 需要先把远程的数据读回来
-            node->remote_read(rdma,  mem_pool->get_rkey(node->key)); */
-    // 2.2 把数据写入到本地cache：memcpy(node->value.str  +  offset,  str,
-    // size);
-    // 2.3.
-    // 由于新增加了节点，需要判断cache已经满了，如果是，需要淘汰cache数据
-    // std::lock_guard<LRUMutex> guard{mutex_};
-    mutex_.lock();
-    if (hash_map.find(addr) != hash_map.end()) {
-      // printf("insert find\n");
-      auto node = hash_map[addr];
-      PushToFront(node);
-      node->clean = false;
-      mutex_.unlock();
+    if (node != nullptr) {
       memcpy(node->value.str + offset, str, size);
+      node->clean = false;
     } else {
       #ifdef STATISTIC
       miss_times++;
       #endif
-      ListNode *node = Evict();
+      node = Evict();
       if (node == nullptr) {
         printf("node is nullptr\n");
       }
@@ -175,56 +151,38 @@ class LRUCache {
         return false;
       }
       node->clean = false;
-      mutex_.unlock();
       memcpy(node->value.str + offset, str, size);
     }
     return true;
   }
 
   bool Find(uint64_t addr, uint32_t offset, uint32_t size, char *str) {
-    // 1. 用addr作为key，查hash map
-    // 1.1. 如果找到了，从对应的 cache entry
-    // 的buffer中，从offset的地方读取大小为size的数据到 str，用以返回给上层。
-    // 1.2. 需要把对应节点移动到头部，以维护LRU
-    /*代码逻辑：
-            auto it = hash_map.find(addr);
-            ListNode  *node  =  it->second;
-            char  *des  =  node->value.str;
-            memcpy(des  +  offset,  str,  size); */
+    ListNode *node = nullptr;
+    {
+      ReadLock rl(mutex_);
+      auto iter = hash_map.find(addr);
+      if (iter != hash_map.end()) {
+        node = iter->second;
+        memcpy(str, node->value.str + offset, size);
+      }
+    }
 
-    // 2.1. 如果没找到，则以 addr 为key新增加一个cache entry，
-    // 2.2. 并从remote读取对应的数据到cache
-    // entry的buffer中，并从offset中拷贝数据到 str，用以返回给上层。
-    // 2.3.
-    // 由于新增加了节点，需要判断cache已经满了，如果是，需要淘汰cache数据
-    /* 代码逻辑：
-            ListNode  *node  =  allocate_node(addr);
-            node->remote_read(rdma,  mem_pool->get_rkey(node->key));
-            hash_map[addr]  =  node;
-                PushToFront(node);
-                memcpy(str,  node->value.str  +  offset,  size); */
-    // std::lock_guard<LRUMutex> guard{mutex_};
-    mutex_.lock();
-    if (hash_map.find(addr) != hash_map.end()) {
-      // printf("Find find\n");
-      auto node = hash_map[addr];
-      PushToFront(node);
-      mutex_.unlock();
-      memcpy(str, node->value.str + offset, size);
-    } else {
+    if (node == nullptr) {
       #ifdef STATISTIC
       miss_times++;
       #endif
-      ListNode *node = Evict();
-      node->key = addr;
-      int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
-      if (ret) {
-        printf("remote_read error\n");
-        return false;
+      {
+        WriteLock wl(mutex_);
+        node = Evict();
+        node->key = addr;
+        int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
+        if (ret) {
+          printf("remote_read error\n");
+          return false;
+        }
+        hash_map[addr] = node;
+        PushToFront(node);
       }
-      hash_map[addr] = node;
-      PushToFront(node);
-      mutex_.unlock();
       memcpy(str, node->value.str + offset, size);
     }
     return true;

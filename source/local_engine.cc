@@ -119,7 +119,7 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
   inter_val = it->internal_value;
   // m_mutex_[index].unlock();
 
-  value.resize(VALUE_LEN, 'a');
+  value.resize(VALUE_LEN, '0');
   /* 从cache读数据，如果cache miss，cache会remote read把数据读到本地再返回 */
   if (!m_cache_[index]->Find(READ_PTR(inter_val.remote_addr), inter_val.offset, VALUE_LEN, (char *)value.c_str())) {
     return false;

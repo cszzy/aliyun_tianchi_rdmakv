@@ -17,8 +17,8 @@ namespace kv {
 
 #define RESOLVE_TIMEOUT_MS 5000
 
-#define CACHE_ENTRY_SIZE (4096)
-#define CACHE_ENTRY_MEM_SIZE (128 * 32)
+#define CACHE_ENTRY_SIZE (1024)
+#define CACHE_ENTRY_MEM_SIZE (128 * 128)
 
 /* RDMA connection */
 class RDMAConnection {
