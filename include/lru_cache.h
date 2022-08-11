@@ -134,6 +134,7 @@ class LRUCache {
 
       if (node != nullptr) {
         node->clean = false;
+        PushToFront(node);
       } else {
         #ifdef STATISTIC
         miss_times++;
