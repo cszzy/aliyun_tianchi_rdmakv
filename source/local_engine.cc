@@ -53,7 +53,7 @@ bool LocalEngine::alive() { return true; }
  */
 bool LocalEngine::write(const std::string &key, const std::string &value) {
   // hash 分区
-  int index = std::hash<std::string>()(key) & (SHARDING_NUM - 1);
+  int index = std::hash<std::string>()(key) % SHARDING_NUM;
   // printf("index: %d\n", index);
 
   internal_value_t internal_value;
@@ -104,7 +104,7 @@ bool LocalEngine::write(const std::string &key, const std::string &value) {
  * @return {bool}  true for success
  */
 bool LocalEngine::read(const std::string &key, std::string &value) {
-  int index = std::hash<std::string>()(key) & (SHARDING_NUM - 1);
+  int index = std::hash<std::string>()(key) % SHARDING_NUM;
   // printf("index: %d\n", index);
 
   /* 保存 start_addr 和 offset 的结构体  */

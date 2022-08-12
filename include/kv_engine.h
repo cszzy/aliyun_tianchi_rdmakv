@@ -22,10 +22,10 @@
 #include "rwlock.h"
 
 #define VALUE_LEN 128
-#define SHARDING_NUM 64
+#define SHARDING_NUM 65
 #define BUCKET_NUM 1048573
-static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
-              "RingBuffer's size must be a positive power of 2");
+// static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
+//               "RingBuffer's size must be a positive power of 2");
 
 namespace kv {
 

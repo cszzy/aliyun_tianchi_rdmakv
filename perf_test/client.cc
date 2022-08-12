@@ -19,7 +19,7 @@ constexpr int thread_num = 16;
 constexpr int kKeyNum = 16 * 12000000;
 constexpr int write_op_per_thread = kKeyNum / thread_num;
 // constexpr int read_write_mix_op = 64 * 100;
-constexpr int read_write_mix_op = 16 * 1000000;
+constexpr int read_write_mix_op = 64 * 1000000;
 constexpr int M = 1024 * 1024;
 
 std::atomic<size_t> miss_times;
@@ -39,7 +39,7 @@ int main() {
   auto keys = genPerfKey(kKeyNum);
   int *zipf_index = new int[read_write_mix_op * 16];
   for (int i = 0; i < read_write_mix_op * 16; i++) {
-    zipf_index[i] = zipf(kKeyNum, 2) - 1;
+    zipf_index[i] = zipf(kKeyNum, 10) - 1;
   }
 
   printf(" ============= start write ==============>\n");
@@ -59,6 +59,18 @@ int main() {
               memcpy((char *)value.c_str(), k[i * write_op_per_thread + j].key, 16);
               auto succ = local_engine->write(k[i * write_op_per_thread + j].to_string(), value);
               EXPECT(succ, "[thread %d] failed to write %d", i, i * write_op_per_thread + j);
+
+              if (j == write_op_per_thread / 2 || (j == write_op_per_thread - 1)) {
+                // read
+                for (int t = j - write_op_per_thread / 2; t <= j; t++) {
+                  string read_value;
+                  auto succ = local_engine->read(k[i * write_op_per_thread + t].to_string(), read_value);
+                  EXPECT(succ, "MIX [thread %d] failed to read %d", i, k[i * write_op_per_thread + t]);
+                  auto cmp = memcmp(read_value.c_str(), k[i * write_op_per_thread + t].key, 16);
+                  EXPECT(cmp == 0, "expect %s, got %s", k[i * write_op_per_thread + t].key,
+                        read_value.c_str());
+                }
+              }
             }
           },
           keys);
@@ -105,7 +117,7 @@ int main() {
                 EXPECT(succ, "MIX [thread %d] failed to read %d", i, zipf_index[i * read_write_mix_op + j]);
                 auto cmp = memcmp(read_value.c_str(), k[zipf_index[i * read_write_mix_op + j]].key, 16);
                 EXPECT(cmp == 0, "expect %s, got %s", k[zipf_index[i * read_write_mix_op + j]].key,
-                       write_value.c_str());
+                       read_value.c_str());
               }
             }
           },
