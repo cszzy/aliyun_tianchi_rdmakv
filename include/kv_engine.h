@@ -22,7 +22,7 @@
 #include "rwlock.h"
 
 #define VALUE_LEN 128
-#define SHARDING_NUM 65
+#define SHARDING_NUM 97
 #define BUCKET_NUM 1048573
 // static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 //               "RingBuffer's size must be a positive power of 2");
@@ -68,7 +68,7 @@ class __attribute__((packed)) hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  MyLock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每8行共用一个读写锁
+  rw_spin_lock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每8行共用一个读写锁
   // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() {
@@ -124,9 +124,11 @@ class __attribute__((packed)) hash_map_t {
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
-    ReadLock rl(m_bucket_lock[index/4]);
+    // ReadLock rl(m_bucket_lock[index/4]);
+    m_bucket_lock[index/4].lock_reader();
     hash_map_slot *cur = m_bucket[index];
     if (!cur) {
+      m_bucket_lock[index/4].unlock_reader();
       return nullptr;
     }
     
@@ -134,10 +136,12 @@ class __attribute__((packed)) hash_map_t {
       if (
         // key_finger == cur->finger && 
         memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
+        m_bucket_lock[index/4].unlock_reader();
         return cur;
       }
       cur = (hash_map_slot *)READ_PTR(cur->next);
     }
+    m_bucket_lock[index/4].unlock_reader();
     return nullptr;
   }
 
@@ -147,7 +151,8 @@ class __attribute__((packed)) hash_map_t {
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
-    WriteLock wl(m_bucket_lock[index/4]);
+    // WriteLock wl(m_bucket_lock[index/4]);
+    m_bucket_lock[index/4].lock_writer();
     if (!m_bucket[index]) {
       m_bucket[index] = new_slot;
     } else {
@@ -157,6 +162,7 @@ class __attribute__((packed)) hash_map_t {
       // new_slot->next = tmp;
       memcpy(new_slot->next, &tmp, 6);
     }
+    m_bucket_lock[index/4].unlock_writer();
   }
 };
 

@@ -40,7 +40,8 @@ namespace kv {
 
 int RDMAMemPool::get_remote_mem(uint64_t size, uint64_t &start_addr, uint32_t &offset) {
   if (size > RDMA_ALLOCATE_SIZE) return -1;
-  std::lock_guard<std::mutex> lk(m_mutex_);
+  // std::lock_guard<std::mutex> lk(m_mutex_);
+  m_mutex_.lock();
 
 retry:
   /* 注册过的内存还够本次分配 */
@@ -50,12 +51,15 @@ retry:
     m_pos_ += size;
     /* 保存rkey，不用返回给上层，需要用的时候可以过来查，因为有大量value的rkey重复，可以减少rkey占用的内存开销。
      */
-    
-    {
+    if (offset == 0) {
       // std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
       WriteLock wl(m_mem_rkey_lock_);
+      // m_mem_rkey_lock_.lock_writer();
       m_mem_rkey_[start_addr] = m_rkey_;
+      // m_mem_rkey_lock_.unlock_writer();
     }
+
+    m_mutex_.unlock();
     return 0;
   }
 
@@ -72,11 +76,6 @@ retry:
     return -1;
   }
   m_pos_ = 0;
-  {
-    // std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
-    WriteLock wl(m_mem_rkey_lock_);
-    m_mem_rkey_[m_current_mem_] = m_rkey_;
-  }
 
   goto retry;
 }
