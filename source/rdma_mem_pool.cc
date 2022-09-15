@@ -77,7 +77,7 @@ retry:
   // m_used_remote_mem_.push_back(rdma_mem);
 
   /* 向remote注册一片内存，一次多注册点，避免小块内存注册，慢慢按需分配 */
-  int ret = m_rdma_conn_->register_remote_memory(m_current_mem_, m_rkey_, RDMA_ALLOCATE_SIZE); // 一次分配1个G
+  int ret = m_rdma_conn_->register_remote_memory(m_current_mem_, m_rkey_, RDMA_ALLOCATE_SIZE);
   if (ret) {
     printf("注册失败\n");
     return -1;

@@ -220,6 +220,7 @@ bool LocalEngine::encrypted(const std::string value, std::string &encrypt_value)
  * @return {bool} true for success
  */
 bool LocalEngine::write(const std::string &key, const std::string &value, bool use_aes) {
+#ifdef STATISTIC_KV
   if (unlikely(my_thread_id == -1)) {
     thread_id_counter_lock.lock_writer();
     my_thread_id = thread_id_counter++;
@@ -227,6 +228,7 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
   }
 
   s_kv_[my_thread_id].kv_nums[(key.size() - 80) / 16]++;
+#endif
 
   if (unlikely(need_rebuild)) {
     rebuild_index();
@@ -326,6 +328,7 @@ bool LocalEngine::deleteK(const std::string &key) {
     if (need_rebuild == false) {
       need_rebuild = true;
       std::cout << "start delete" << std::endl;
+#ifdef STATISTIC_KV
       // print statistic info
       statistic_kv statistic_;
       for (int i = 0; i < THREAD_NUM; i++) {
@@ -338,7 +341,9 @@ bool LocalEngine::deleteK(const std::string &key) {
         std::cout << 80 + j * 16 << "B - " << 80 + (j+1) * 16 << "B : " <<
            statistic_.kv_nums[j] << " , " << (double)statistic_.kv_nums[j] / (12000000 * 16)  << std::endl; 
       }
+#endif
     }
+
     
     rebuild_lock.unlock_writer();
   }

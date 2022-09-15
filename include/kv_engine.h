@@ -34,13 +34,16 @@
 
 // #define USE_AES
 
+// #define STATISTIC_KV
+
 #ifdef USE_AES
 #include "ippcp.h"
 #endif
 
 namespace kv {
-
+#ifdef STATISTIC_KV
 extern thread_local int my_thread_id;
+#endif
 
 #ifdef USE_AES
 
@@ -63,7 +66,8 @@ typedef struct crypto_message_t {
 } crypto_message_t;
 
 #endif
-// calculate fingerprint
+
+// calculate fingerprint, not use
   // static inline char hashcode1B(const char *x)
   // {
   //     uint64_t a = *(uint64_t*)x;
@@ -75,7 +79,7 @@ typedef struct crypto_message_t {
   //     return (char)(a & 0xffUL);
   // }
 
-// 
+#ifdef STATISTIC_KV
 typedef struct __attribute__((__aligned__(64))) statistic_kv {
   // 统计kv分布
   uint32_t kv_nums[64]; // 从80B到1024B每16B区间value数目统计
@@ -83,6 +87,7 @@ typedef struct __attribute__((__aligned__(64))) statistic_kv {
     memset(kv_nums, 0, sizeof(kv_nums));
   }
 } statistic_kv;
+#endif
 
 typedef struct __attribute__((packed)) internal_value_t {
   // uint64_t remote_addr;
@@ -257,7 +262,13 @@ class Engine {
 /* Local-side engine */
 class LocalEngine : public Engine {
  public:
- LocalEngine() : need_rebuild(false), thread_id_counter(0) {std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; };
+ LocalEngine() : need_rebuild(false) {
+#ifdef STATISTIC_KV
+    thread_id_counter(0)
+#endif
+    std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; 
+  };
+
   ~LocalEngine(){};
 
   bool start(const std::string addr, const std::string port) override;
@@ -300,10 +311,12 @@ class LocalEngine : public Engine {
   bool need_rebuild; // delete后遇到第一个其他类型指令开始进行GC, GC完毕后置为false
   rw_spin_lock rebuild_lock;
 
+#ifdef STATISTIC_KV
   // for statistic
   statistic_kv s_kv_[THREAD_NUM];
   int thread_id_counter;
   rw_spin_lock thread_id_counter_lock;
+#endif
 };
 
 const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
