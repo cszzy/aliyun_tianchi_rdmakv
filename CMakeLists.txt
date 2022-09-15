@@ -4,7 +4,9 @@ project(POLAR_CONTEST)
 set(CMAKE_BUILD_TYPE "Release")
 
 set(RDMA_LIB "-lrdmacm -libverbs -libumad -lpci")
+set(IPP_LIB "-lippcp")
 set(CMAKE_CXX_FLAGS "-std=c++17 ${CMAKE_CXX_FLAGS}")
+# set(CMAKE_CXX_FLAGS "-pthread -ldl -lrt ${IPP_LIB} ${RDMA_LIB} -${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "-pthread -ldl -lrt ${RDMA_LIB} -${CMAKE_CXX_FLAGS}")
 
 if( CMAKE_BUILD_TYPE STREQUAL "Debug" )
@@ -21,4 +23,4 @@ MESSAGE("Install prefix is: ${CMAKE_INSTALL_PREFIX}")
 add_subdirectory(include)
 add_subdirectory(source)
 
-add_subdirectory(perf_test)
+add_subdirectory(new_test)

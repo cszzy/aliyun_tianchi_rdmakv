@@ -47,8 +47,15 @@ retry:
   /* 注册过的内存还够本次分配 */
   if (m_pos_ + size <= RDMA_ALLOCATE_SIZE && m_current_mem_ != 0) {
     offset = m_pos_ % CACHE_ENTRY_MEM_SIZE; /* 和 CACHE_ENTRY_MEM_SIZE 对齐 */
-    start_addr = m_current_mem_ + m_pos_ - offset;
-    m_pos_ += size;
+    // 如果value跨越两个缓存块，则放弃第一个缓存块，从第二个缓存块开始分配
+    if (offset + size > CACHE_ENTRY_MEM_SIZE) {
+      start_addr = m_current_mem_ + m_pos_ - offset + CACHE_ENTRY_MEM_SIZE;
+      offset = 0;
+      m_pos_ = start_addr;
+    } else {
+      start_addr = m_current_mem_ + m_pos_ - offset;
+      m_pos_ += size;
+    }
     /* 保存rkey，不用返回给上层，需要用的时候可以过来查，因为有大量value的rkey重复，可以减少rkey占用的内存开销。
      */
     if (offset == 0) {

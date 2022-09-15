@@ -21,29 +21,73 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
+
 #define VALUE_LEN 128
 #define SHARDING_NUM 119
 #define BUCKET_NUM 1048573
 // static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
 //               "RingBuffer's size must be a positive power of 2");
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+#define THREAD_NUM 16
+
+// #define USE_AES
+
+#ifdef USE_AES
+#include "ippcp.h"
+#endif
 
 namespace kv {
 
+extern thread_local int my_thread_id;
+
+#ifdef USE_AES
+
+/* Encryption algorithm competitor can choose. */
+enum aes_algorithm {
+  CTR=0, CBC, CBC_CS1, CBC_CS2, CBC_CS3, CFB, OFB
+};
+
+/* Algorithm relate message. */
+typedef struct crypto_message_t {
+  aes_algorithm algo;
+  Ipp8u *key;
+  Ipp32u key_len;
+  Ipp8u *counter;
+  Ipp32u counter_len;
+  Ipp8u *piv;
+  Ipp32u piv_len;
+  Ipp32u blk_size;
+  Ipp32u counter_bit;
+} crypto_message_t;
+
+#endif
 // calculate fingerprint
-  static inline char hashcode1B(const char *x)
-  {
-      uint64_t a = *(uint64_t*)x;
-      uint64_t b = *(uint64_t*)(x + 8);
-      a ^= b;
-      a ^= a >> 32;
-      a ^= a >> 16;
-      a ^= a >> 8;
-      return (char)(a & 0xffUL);
+  // static inline char hashcode1B(const char *x)
+  // {
+  //     uint64_t a = *(uint64_t*)x;
+  //     uint64_t b = *(uint64_t*)(x + 8);
+  //     a ^= b;
+  //     a ^= a >> 32;
+  //     a ^= a >> 16;
+  //     a ^= a >> 8;
+  //     return (char)(a & 0xffUL);
+  // }
+
+// 
+typedef struct __attribute__((__aligned__(64))) statistic_kv {
+  // 统计kv分布
+  uint32_t kv_nums[64]; // 从80B到1024B每16B区间value数目统计
+  statistic_kv() {
+    memset(kv_nums, 0, sizeof(kv_nums));
   }
+} statistic_kv;
 
 typedef struct __attribute__((packed)) internal_value_t {
   // uint64_t remote_addr;
   uint16_t offset;
+  uint16_t size;
   uint8_t remote_addr[6];
 } internal_value_t;
 
@@ -64,7 +108,7 @@ class  hash_map_slot {
 
 // const int hash_map_slot_size = sizeof(hash_map_slot);
 
-class __attribute__((packed)) hash_map_t {
+class hash_map_t {
  public:
   hash_map_slot *m_bucket[BUCKET_NUM];
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
@@ -164,6 +208,37 @@ class __attribute__((packed)) hash_map_t {
     }
     m_bucket_lock[index/4].unlock_writer();
   }
+
+  // if not exist or delete fail, return false
+  bool remove(const std::string &key) {
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
+    m_bucket_lock[index/4].lock_writer();
+    hash_map_slot *cur = m_bucket[index];
+    if (!cur) {
+      m_bucket_lock[index/4].unlock_writer();
+      return false;
+    }
+
+    hash_map_slot *prev = nullptr;
+    while (cur) {
+      if (
+          // key_finger == cur->finger && 
+          memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
+        if (prev == nullptr) {
+          m_bucket[index] = (hash_map_slot *)READ_PTR(cur->next);
+        } else {
+          memcpy(prev->next, cur->next, 6);
+        }
+        delete cur;
+        break;
+      }
+      prev = cur;
+      cur = (hash_map_slot *)READ_PTR(cur->next);
+    }
+
+    m_bucket_lock[index/4].unlock_writer();
+    return cur != nullptr;
+  }
 };
 
 // const double hash_map_t_size = sizeof(hash_map_t) / 1024.0 / 1024;
@@ -182,27 +257,53 @@ class Engine {
 /* Local-side engine */
 class LocalEngine : public Engine {
  public:
- LocalEngine() {std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; };
+ LocalEngine() : need_rebuild(false), thread_id_counter(0) {std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; };
   ~LocalEngine(){};
 
   bool start(const std::string addr, const std::string port) override;
   void stop() override;
   bool alive() override;
 
-  bool write(const std::string &key, const std::string &value);
+  // bool write(const std::string &key, const std::string &value);
   bool read(const std::string &key, std::string &value);
+
+  // phase 2 add function
+
+#ifdef USE_AES
+  /* Init aes context message. */
+  bool set_aes();
+  bool encrypted(const std::string value, std::string &encrypt_value);
+  /* Evaluation problem will call this function. */
+  crypto_message_t* get_aes() { return &m_aes_; }
+#endif
+
+  bool write(const std::string &key, const std::string &value, bool use_aes = false);
+  /** The delete interface */
+  bool deleteK(const std::string &key);
+
+  /** Rebuild the hash index to recycle the unsed memory */
+  void rebuild_index();
 
  private:
   kv::ConnectionManager *m_rdma_conn_;
   /* NOTE: should use some concurrent data structure, and also should take the
    * extra memory overhead into consideration */
   hash_map_slot m_hash_slot_array_[16 * 12000000];
-  hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
   std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
-
+  hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
   RDMAMemPool *m_mem_pool_[SHARDING_NUM];
   // std::mutex m_mutex_[SHARDING_NUM];
   LRUCache *m_cache_[SHARDING_NUM];
+#ifdef USE_AES
+  crypto_message_t m_aes_;
+#endif
+  bool need_rebuild; // delete后遇到第一个其他类型指令开始进行GC, GC完毕后置为false
+  rw_spin_lock rebuild_lock;
+
+  // for statistic
+  statistic_kv s_kv_[THREAD_NUM];
+  int thread_id_counter;
+  rw_spin_lock thread_id_counter_lock;
 };
 
 const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
