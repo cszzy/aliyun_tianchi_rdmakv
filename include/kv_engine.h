@@ -21,29 +21,21 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
-
-#define VALUE_LEN 128
 #define SHARDING_NUM 119
 #define BUCKET_NUM 1048573
-// static_assert(((SHARDING_NUM & (~SHARDING_NUM + 1)) == SHARDING_NUM),
-//               "RingBuffer's size must be a positive power of 2");
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
 
 #define THREAD_NUM 16
 
-// #define USE_AES
+#define KV_NUMS (16 * 12000000) // 192000000
+#define SLOT_BITMAP_NUMS 1920
 
-// #define STATISTIC_KV
+// #define USE_AES
 
 #ifdef USE_AES
 #include "ippcp.h"
 #endif
 
 namespace kv {
-#ifdef STATISTIC_KV
-extern thread_local int my_thread_id;
-#endif
 
 #ifdef USE_AES
 
@@ -67,107 +59,41 @@ typedef struct crypto_message_t {
 
 #endif
 
-// calculate fingerprint, not use
-  // static inline char hashcode1B(const char *x)
-  // {
-  //     uint64_t a = *(uint64_t*)x;
-  //     uint64_t b = *(uint64_t*)(x + 8);
-  //     a ^= b;
-  //     a ^= a >> 32;
-  //     a ^= a >> 16;
-  //     a ^= a >> 8;
-  //     return (char)(a & 0xffUL);
-  // }
-
-#ifdef STATISTIC_KV
-typedef struct __attribute__((__aligned__(64))) statistic_kv {
-  // 统计kv分布
-  uint32_t kv_nums[64]; // 从80B到1024B每16B区间value数目统计
-  statistic_kv() {
-    memset(kv_nums, 0, sizeof(kv_nums));
-  }
-} statistic_kv;
-#endif
-
-typedef struct __attribute__((packed)) internal_value_t {
-  // uint64_t remote_addr;
-  uint16_t offset;
-  uint16_t size;
-  uint8_t remote_addr[6];
-} internal_value_t;
-
 /* One slot stores the key and the meta info of the value which
    describles the remote addr, size, remote-key on remote end. */
-class  hash_map_slot {
+class hash_map_slot {
  public:
   char key[16];
   internal_value_t internal_value;
-  // hash_map_slot *next;
   // char finger; // key的finger，加速比较
-  uint8_t next[6];
+  int next_slot_id;
+  hash_map_slot() : next_slot_id(-1) {}
 };
 
-// const int a = sizeof(hash_map_slot)
+// const int hash_map_slot_size = sizeof(hash_map_slot);
 
 #define READ_PTR(addr) ((*(uint64_t*)addr) & 0x0000FFFFFFFFFFFFUL)
 
 // const int hash_map_slot_size = sizeof(hash_map_slot);
 
+// 注意hash_map_t内部不会会更新位图，需要在外部管理位图
 class hash_map_t {
  public:
-  hash_map_slot *m_bucket[BUCKET_NUM];
+  int m_bucket[BUCKET_NUM]; // 记录
+  hash_map_slot *global_slot_array;
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  rw_spin_lock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每8行共用一个读写锁
+  rw_spin_lock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每n行共用一个读写锁
   // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
-  hash_map_t() {
+  hash_map_t() : global_slot_array(nullptr) {
     for (int i = 0; i < BUCKET_NUM; ++i) {
-      m_bucket[i] = nullptr;
+      m_bucket[i] = -1;
     }
   }
 
-  // /* Find the corresponding key. */
-  // hash_map_slot *find(const std::string &key) {
-  //   int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
-  //   // char key_finger = hashcode1B(key.c_str());
-  //   m_bucket_lock[index].lock_reader();
-  //   hash_map_slot *cur = m_bucket[index];
-  //   if (!cur) {
-  //     m_bucket_lock[index].unlock_reader();
-  //     return nullptr;
-  //   }
-    
-  //   while (cur) {
-  //     if (
-  //       // key_finger == cur->finger && 
-  //       memcmpx86_64(cur->key, key.c_str(), 16) == 0) {
-  //       m_bucket_lock[index].unlock_reader();
-  //       return cur;
-  //     }
-  //     cur = (hash_map_slot *)READ_PTR(cur->next);
-  //   }
-  //   m_bucket_lock[index].unlock_reader();
-  //   return nullptr;
-  // }
-
-  // /* Insert into the head of the list. */
-  // void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
-  //   int index = std::hash<std::string>()(key) & (BUCKET_NUM - 1);
-  //   memcpy(new_slot->key, key.c_str(), 16);
-  //   // new_slot->finger = hashcode1B(new_slot->key);
-  //   new_slot->internal_value = internal_value;
-  //   m_bucket_lock[index].lock_writer();
-  //   if (!m_bucket[index]) {
-  //     m_bucket[index] = new_slot;
-  //   } else {
-  //     /* Insert into the head. */
-  //     hash_map_slot *tmp = m_bucket[index];
-  //     m_bucket[index] = new_slot;
-  //     // new_slot->next = tmp;
-  //     memcpy(new_slot->next, &tmp, 6);
-  //   }
-  //   m_bucket_lock[index].unlock_writer();
-  // }
+  void set_global_slot_array(hash_map_slot *s) {
+    global_slot_array = s;
+  }
 
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
@@ -175,74 +101,65 @@ class hash_map_t {
     // char key_finger = hashcode1B(key.c_str());
     // ReadLock rl(m_bucket_lock[index/4]);
     m_bucket_lock[index/4].lock_reader();
-    hash_map_slot *cur = m_bucket[index];
-    if (!cur) {
-      m_bucket_lock[index/4].unlock_reader();
-      return nullptr;
-    }
+    int cur = m_bucket[index];
     
-    while (cur) {
-      if (
-        // key_finger == cur->finger && 
-        memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
+    hash_map_slot *cc = nullptr;
+    while (-1 != cur) {
+      cc = &(global_slot_array[cur]);
+      if (memcmp(cc->key, (void*)key.c_str(), 16) == 0) {
         m_bucket_lock[index/4].unlock_reader();
-        return cur;
+        return cc;
       }
-      cur = (hash_map_slot *)READ_PTR(cur->next);
+      cur = cc->next_slot_id;
     }
     m_bucket_lock[index/4].unlock_reader();
     return nullptr;
   }
 
   /* Insert into the head of the list. */
-  void insert(const std::string &key, internal_value_t internal_value, hash_map_slot *new_slot) {
+  void insert(const std::string &key, const internal_value_t &internal_value, int new_slot_id) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
+    hash_map_slot *new_slot = &(global_slot_array[new_slot_id]);
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
     // WriteLock wl(m_bucket_lock[index/4]);
     m_bucket_lock[index/4].lock_writer();
-    if (!m_bucket[index]) {
-      m_bucket[index] = new_slot;
-    } else {
-      /* Insert into the head. */
-      hash_map_slot *tmp = m_bucket[index];
-      m_bucket[index] = new_slot;
-      // new_slot->next = tmp;
-      memcpy(new_slot->next, &tmp, 6);
+    int tmp_id = m_bucket[index];
+    /* Insert into the head. */
+    m_bucket[index] = new_slot_id;
+    if (-1 != tmp_id) {
+      new_slot->next_slot_id = tmp_id;
     }
     m_bucket_lock[index/4].unlock_writer();
   }
 
-  // if not exist or delete fail, return false
-  bool remove(const std::string &key) {
+  // if not exist or delete fail, return -1, else return kv_slot_id
+  int remove(const std::string &key) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
     m_bucket_lock[index/4].lock_writer();
-    hash_map_slot *cur = m_bucket[index];
-    if (!cur) {
-      m_bucket_lock[index/4].unlock_writer();
-      return false;
-    }
+    int cur_id = m_bucket[index];
 
-    hash_map_slot *prev = nullptr;
-    while (cur) {
-      if (
-          // key_finger == cur->finger && 
-          memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
-        if (prev == nullptr) {
-          m_bucket[index] = (hash_map_slot *)READ_PTR(cur->next);
+    hash_map_slot *cur = nullptr;
+    int prev_id = -1;
+    while (-1 != cur_id) {
+      cur = &(global_slot_array[cur_id]);
+      if (memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
+        if (-1 == prev_id) {
+          m_bucket[index] = cur->next_slot_id;
         } else {
-          memcpy(prev->next, cur->next, 6);
+          hash_map_slot *prev = &(global_slot_array[prev_id]);
+          prev->next_slot_id = cur->next_slot_id;
         }
-        delete cur;
-        break;
+        cur->next_slot_id = -1;
+        m_bucket_lock[index/4].unlock_writer();
+        return cur_id;
       }
-      prev = cur;
-      cur = (hash_map_slot *)READ_PTR(cur->next);
+      prev_id = cur_id;
+      cur_id = cur->next_slot_id;
     }
-
     m_bucket_lock[index/4].unlock_writer();
-    return cur != nullptr;
+    return -1;
   }
 };
 
@@ -262,12 +179,7 @@ class Engine {
 /* Local-side engine */
 class LocalEngine : public Engine {
  public:
- LocalEngine() : need_rebuild(false) {
-#ifdef STATISTIC_KV
-    thread_id_counter(0)
-#endif
-    std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; 
-  };
+ LocalEngine(){};
 
   ~LocalEngine(){};
 
@@ -275,10 +187,13 @@ class LocalEngine : public Engine {
   void stop() override;
   bool alive() override;
 
-  // bool write(const std::string &key, const std::string &value);
   bool read(const std::string &key, std::string &value);
 
   // phase 2 add function
+
+  bool write(const std::string &key, const std::string &value, bool use_aes = false);
+  /** The delete interface */
+  bool deleteK(const std::string &key);
 
 #ifdef USE_AES
   /* Init aes context message. */
@@ -288,38 +203,23 @@ class LocalEngine : public Engine {
   crypto_message_t* get_aes() { return &m_aes_; }
 #endif
 
-  bool write(const std::string &key, const std::string &value, bool use_aes = false);
-  /** The delete interface */
-  bool deleteK(const std::string &key);
-
-  /** Rebuild the hash index to recycle the unsed memory */
-  void rebuild_index();
-
  private:
   kv::ConnectionManager *m_rdma_conn_;
   /* NOTE: should use some concurrent data structure, and also should take the
    * extra memory overhead into consideration */
-  hash_map_slot m_hash_slot_array_[16 * 12000000];
-  std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
+  // TODO: 将slot array分片？
+  hash_map_slot m_hash_slot_array_[KV_NUMS];
+  bitmap *slot_array_bitmap_[SLOT_BITMAP_NUMS]; //使用位图管理，是线程安全的嘛？
+  // std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
   hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
   RDMAMemPool *m_mem_pool_[SHARDING_NUM];
-  // std::mutex m_mutex_[SHARDING_NUM];
   LRUCache *m_cache_[SHARDING_NUM];
 #ifdef USE_AES
   crypto_message_t m_aes_;
 #endif
-  bool need_rebuild; // delete后遇到第一个其他类型指令开始进行GC, GC完毕后置为false
-  rw_spin_lock rebuild_lock;
-
-#ifdef STATISTIC_KV
-  // for statistic
-  statistic_kv s_kv_[THREAD_NUM];
-  int thread_id_counter;
-  rw_spin_lock thread_id_counter_lock;
-#endif
 };
 
-const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
+// const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
 
 /* Remote-side engine */
 class RemoteEngine : public Engine {

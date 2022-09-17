@@ -62,4 +62,42 @@ typedef std::shared_mutex MyLock;
 typedef std::unique_lock<MyLock> WriteLock;
 typedef std::shared_lock<MyLock> ReadLock;
 
+// 郭爹写的
+// class shared_mutex_u8 {
+// public:
+//   shared_mutex_u8() : l(0) {}
+
+//   void lock() {
+//     uint8_t _l = 0;
+//     while (!l.compare_exchange_weak(_l, 1, std::memory_order_acquire)) {
+//       _l = 0;
+//       std::this_thread::yield();
+//     }
+//   }
+//   void lock_shared() {
+//     uint8_t _l = l.fetch_add(2, std::memory_order_acquire);
+//     while (_l & 1) {
+//       std::this_thread::yield();
+//       _l = l.load(std::memory_order_acquire);
+//     }
+//   }
+//   bool try_lock() {
+//     uint8_t _l = 0;
+//     return l.compare_exchange_weak(_l, 1, std::memory_order_acquire);
+//   }
+//   bool try_lock_shared() {
+//     uint8_t _l = l.fetch_add(2, std::memory_order_release);
+//     if (_l & 1) {
+//       l.fetch_sub(2, std::memory_order_release);
+//       return false;
+//     }
+//     return true;
+//   }
+//   void unlock() { l.fetch_xor(1, std::memory_order_release); }
+//   void unlock_shared() { l.fetch_sub(2, std::memory_order_release); }
+
+// private:
+//   std::atomic<uint8_t> l;
+// };
+
 } /* namespace linduo */

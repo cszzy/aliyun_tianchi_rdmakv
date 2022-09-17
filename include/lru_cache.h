@@ -17,38 +17,37 @@ namespace kv {
 // cache entry
 struct CacheEntry {
   char *str; /* cache entry buffer */
-  // uint32_t lkey; /* rdma lkey */
 };
 
 // 把cache entry封装成一个node，用于实现double-linked list
 struct ListNode {
-  ListNode() : prev(nullptr), next(nullptr), clean(true) {}
-  ListNode(const uint64_t &k, const CacheEntry &v) : key(k), value(v), prev(nullptr), next(nullptr) {}
+  ListNode() : key_(0), prev_(nullptr), next_(nullptr), clean_(true) {}
+  // ListNode(uint64_t key, uint32_t rkey, const CacheEntry &value) : 
+  //       key_(key), rkey_(rkey), value_(value), prev_(nullptr), next_(nullptr) {}
 
   /* 从remote读数据到当前 cache entry 的buffer */
-  int remote_read(ConnectionManager *rdma, uint32_t rkey) {
-    int ret = rdma->remote_read((void *)value.str, CACHE_ENTRY_MEM_SIZE, key, rkey);
+  int remote_read(ConnectionManager *rdma) {
+    int ret = rdma->remote_read((void *)value_.str, CACHELINE_SIZE, key_, rkey_);
     // TODO: 处理可能的错误
     return ret;
   }
 
   /* 把当前cache entry 的 buffer 写到 remote */
-  int remote_write(ConnectionManager *rdma, uint32_t rkey) {
-    int ret = rdma->remote_write((void *)value.str, CACHE_ENTRY_MEM_SIZE, key, rkey);
+  int remote_write(ConnectionManager *rdma) {
+    int ret = rdma->remote_write((void *)value_.str, CACHELINE_SIZE, key_, rkey_);
     return ret;
   }
 
-  /* key 其实就是 remote addr, cache
-   * entry的buffer对应的就是remote上地址为key的内容 */
-  uint64_t key;
-  CacheEntry value;
-  ListNode *prev;
-  ListNode *next;
+  uint64_t key_; // ie. cacheline start_addr
+  uint32_t rkey_;
+  CacheEntry value_;
+  ListNode *prev_;
+  ListNode *next_;
   /* 标记数据是否被修改，evict可以用来判读是否需要写回到remote */
-  bool clean;
+  bool clean_;
 };
 
-const int ListNode_size = sizeof(ListNode);
+// const int ListNode_size = sizeof(ListNode);
 
 class LRUCache {
  private:
@@ -68,17 +67,17 @@ class LRUCache {
     if (node == head) return;
 
     if (node == tail) {
-      tail = node->prev;
-      tail->next = nullptr;
+      tail = node->prev_;
+      tail->next_ = nullptr;
     } else {
-      node->prev->next = node->next;
-      node->next->prev = node->prev;
+      node->prev_->next_ = node->next_;
+      node->next_->prev_ = node->prev_;
     }
 
     // push to head
-    node->prev = nullptr;
-    node->next = head;
-    head->prev = node;
+    node->prev_ = nullptr;
+    node->next_ = head;
+    head->prev_ = node;
     head = node;
   }
 
@@ -86,41 +85,42 @@ class LRUCache {
   LRUCache() {}
   LRUCache(uint64_t max_size, ConnectionManager *rdma_conn, RDMAMemPool *pool)
       : head(nullptr), tail(nullptr), rdma(rdma_conn), mem_pool(pool) {
-    ListNode *prev = nullptr;
-    for (int i = 0; i < max_size; i++) {
+    ListNode *prev_ = nullptr;
+    for (size_t i = 0; i < max_size; i++) {
       // 预先分配内存 cache entry node
       ListNode *tmp = new ListNode();
-      tmp->value.str = new char[CACHE_ENTRY_MEM_SIZE];
+      tmp->value_.str = new char[CACHELINE_SIZE];
       // free_nodes.push(tmp);
-      if (prev) {
-        prev->next = tmp;
-        tmp->prev = prev;
+      if (prev_) {
+        prev_->next_ = tmp;
+        tmp->prev_ = prev_;
       } else {
         head = tmp;
       }
-      prev = tmp;
+      prev_ = tmp;
     }
-    tail = prev;
+    tail = prev_;
   }
 
   // 返回淘汰的node
   ListNode *Evict() {
     auto node = tail;
-    if (!node->clean) {
+    if (!node->clean_) {
       #ifdef STATISTIC
       evict_times++;
       #endif
-      int ret = node->remote_write(rdma, mem_pool->get_rkey(node->key));
+      int ret = node->remote_write(rdma);
       if (ret) {
         printf("Evict write back error!\n");
       }
-      node->clean = true;
+      node->clean_ = true;
     }
-    hash_map.erase(node->key);
+    if (0 != node->key_)
+      hash_map.erase(node->key_);
     return node;
   }
 
-  bool Insert(uint64_t addr, uint32_t offset, uint32_t size, const char *str) {
+  bool Insert(uint64_t addr, uint32_t rkey, uint32_t offset, uint32_t size, const char *str) {
     ListNode *node = nullptr;
     {
       // WriteLock wl(mutex_);
@@ -133,7 +133,7 @@ class LRUCache {
       }
 
       if (node != nullptr) {
-        node->clean = false;
+        node->clean_ = false;
         PushToFront(node);
       } else {
         #ifdef STATISTIC
@@ -143,25 +143,25 @@ class LRUCache {
         if (node == nullptr) {
           printf("node is nullptr\n");
         }
-        node->key = addr;
+        node->key_ = addr;
+        node->rkey_ = rkey;
         hash_map[addr] = node;
-        auto rkey = mem_pool->get_rkey(node->key);
         PushToFront(node);
-        int ret = node->remote_read(rdma, rkey);
+        int ret = node->remote_read(rdma);
         if (ret) {
           printf("remote_read error\n");
           return false;
         }
-        node->clean = false;
+        node->clean_ = false;
       }
       mutex_.unlock_writer();
     }
 
-    memcpy(node->value.str + offset, str, size);
+    memcpy(node->value_.str + offset, str, size);
     return true;
   }
 
-  bool Find(uint64_t addr, uint32_t offset, uint32_t size, char *str) {
+  bool Find(uint64_t addr, uint32_t rkey, uint32_t offset, uint32_t size, char *str) {
     ListNode *node = nullptr;
     {
       // ReadLock rl(mutex_);
@@ -169,7 +169,7 @@ class LRUCache {
       auto iter = hash_map.find(addr);
       if (iter != hash_map.end()) {
         node = iter->second;
-        memcpy(str, node->value.str + offset, size);
+        memcpy(str, node->value_.str + offset, size);
       }
       mutex_.unlock_reader();
     }
@@ -182,8 +182,9 @@ class LRUCache {
         // WriteLock wl(mutex_);
         mutex_.lock_writer();
         node = Evict();
-        node->key = addr;
-        int ret = node->remote_read(rdma, mem_pool->get_rkey(node->key));
+        node->key_ = addr;
+        node->rkey_ = rkey;
+        int ret = node->remote_read(rdma);
         if (ret) {
           printf("remote_read error\n");
           return false;
@@ -192,7 +193,7 @@ class LRUCache {
         PushToFront(node);
         mutex_.unlock_writer();
       }
-      memcpy(str, node->value.str + offset, size);
+      memcpy(str, node->value_.str + offset, size);
     }
     return true;
   }

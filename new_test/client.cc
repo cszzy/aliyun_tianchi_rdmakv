@@ -17,19 +17,21 @@
 using namespace kv;
 using namespace std;
 
+// constexpr int gen_zipf_thread_num = 16;
+
 constexpr int thread_num = 16;
 constexpr int M = 1000000;
 
-constexpr int insert_num = 16 * 10 * M;  // 16 * 10M
+constexpr int insert_num = thread_num * 10 * M;  // 16 * 10M
 constexpr int write_op_per_thread = insert_num / thread_num;
 
-constexpr int update_num = 16 * M;  // 16 * 1M
+constexpr int update_num = thread_num * M;  // 16 * 1M
 constexpr int update_op_per_thread = update_num / thread_num;
 
-constexpr int delete_num = 16 * 9 * M;  // 16 * 9M
+constexpr int delete_num = thread_num * 9 * M;  // 16 * 9M
 constexpr int delete_op_per_thread = delete_num / thread_num;
 
-constexpr int read_num = 16 * 32 * M;  // 16 * 32M
+constexpr int read_num = thread_num * 32 * M;  // 16 * 32M
 constexpr int read_op_per_thread = read_num / thread_num;
 // encryption & decrption
 
@@ -372,10 +374,36 @@ void part3(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
   }
 }
 
+// 实时获取程序占用的内存，单位：kb
+size_t physical_memory_used_by_process()
+{
+    FILE* file = fopen("/proc/self/status", "r");
+    int result = -1;
+    char line[128];
+
+    while (fgets(line, 128, file) != nullptr) {
+        if (strncmp(line, "VmRSS:", 6) == 0) {
+            int len = strlen(line);
+
+            const char* p = line;
+            for (; std::isdigit(*p) == false; ++p) {}
+
+            line[len - 3] = 0;
+            result = atoi(p);
+
+            break;
+        }
+    }
+
+    fclose(file);
+    return result;
+}
+
 int main() {
   LocalEngine *local_engine = new LocalEngine();
   // ip 必须写具体ip，不能直接写localhost和127.0.0.1
   local_engine->start("192.168.200.22", "23627");
+  LOG_INFO("Engine Use DRAM Space: %lf GB", ((double)physical_memory_used_by_process())/1024.0/1024.0);
   std::vector<std::thread> threads;
   std::mutex zipf_mutex;
 

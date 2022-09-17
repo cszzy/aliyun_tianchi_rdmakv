@@ -14,3 +14,9 @@ add_executable(
     server.cc
 )
 target_link_libraries(server polarkv rdmacm ibverbs ibumad pci)
+
+add_executable(
+    bitmap_test
+    bitmap_test.cc
+)
+target_link_libraries(bitmap_test)

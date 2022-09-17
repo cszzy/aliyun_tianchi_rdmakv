@@ -15,26 +15,17 @@ class ConnQue {
   ConnQue() {}
 
   void enqueue(RDMAConnection *conn) {
-    // std::unique_lock<std::mutex> lock(m_mutex_);
     m_queue_.enqueue(conn);
   };
 
   RDMAConnection *dequeue() {
     RDMAConnection *conn;
-  // retry:
-    // std::unique_lock<std::mutex> lock(m_mutex_);
     while (!m_queue_.try_dequeue(conn)) {
-      // lock.unlock();
-      // std::this_thread::yield();
-      // goto retry;
     }
-    // m_queue_.pop();
     return conn;
   }
 
  private:
-  // std::queue<RDMAConnection *> m_queue_;
-  // std::mutex m_mutex_;
   moodycamel::ConcurrentQueue<RDMAConnection *> m_queue_;
 };
 
