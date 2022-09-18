@@ -5,7 +5,7 @@
 #include <assert.h>
 
 // 增加分级page
-#define CACHELINE_NUMS (800)
+#define CACHELINE_NUMS (1024)
 #define CACHELINE_SIZE (1 << 14) // 16K
 #define RDMA_ALLOCATE_SIZE (1 << 21ul) // 每次分配的page size, 2M
 #define BITMAP_NUMS (RDMA_ALLOCATE_SIZE/CACHELINE_SIZE)
@@ -29,10 +29,11 @@ public:
     
     }
 
-    // 释放slot
-    void free_slot(cache_id_t cacheline_id, slot_id_t slot_id) {
+    // 释放slot, 页空余达到1/8,返回true
+    bool free_slot(cache_id_t cacheline_id, slot_id_t slot_id) {
         put_back(bitmap_[cacheline_id], slot_id);
-        kv_nums_--;
+        uint16_t old_kv_nums = kv_nums_.fetch_sub(1);
+        return (BITMAP_NUMS * (CACHELINE_SIZE/slot_size_)) * 7 == old_kv_nums * 8;
     }
 
     // 获取空闲slot,失败返回false
@@ -53,6 +54,8 @@ public:
     void format_page(uint16_t slot_size) {
         // delete旧的位图，生成新的位图
         assert(0 == kv_nums_);
+        if (slot_size_ == slot_size)
+            return;
         slot_size_ = slot_size;
         for (int i = 0; i < BITMAP_NUMS; i++) {
             delete bitmap_[i];
@@ -78,7 +81,7 @@ private:
      *    ...
      */
     uint16_t slot_size_;
-    uint16_t kv_nums_; // record kv nums in this page 
+    std::atomic<uint16_t> kv_nums_; // record kv nums in this page 
     uint32_t m_rkey_; // page remote memory rkey
     bitmap *bitmap_[BITMAP_NUMS]; // use bitmap for alloc and gc, per CACHE_ENTRY need a bitmap
 };

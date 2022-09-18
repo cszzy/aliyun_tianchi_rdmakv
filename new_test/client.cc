@@ -62,7 +62,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start write thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start write threads");
             std::string value;
             for (int j = 0; j < write_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -76,7 +77,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto succ = local_engine->write(k[key_idx].to_string(), value);
               ASSERT(succ, "[thread %d] failed to write %d", i, key_idx);
             }
-            LOG_INFO("End write thread %d", i);
+            if (i == 0)
+              LOG_INFO("End write threads");
           },
           keys, key_slab_class);
     }
@@ -90,7 +92,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start read thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start read threads");
             std::string value;
             for (int j = 0; j < write_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -104,7 +107,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto cmp = memcmp(value.c_str(), k[key_idx].key, 16);
               ASSERT(cmp == 0, "expect %.16s, got %.16s", k[key_idx].key, value.c_str());
             }
-            LOG_INFO("End read thread %d", i);
+            if (i == 0)
+              LOG_INFO("End read threads");
           },
           keys, key_slab_class);
     }
@@ -119,7 +123,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start write thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start write threads");
             std::string value;
             for (int j = 0; j < write_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -136,7 +141,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto succ = local_engine->write(k[key_idx].to_string(), value);
               ASSERT(succ, "[thread %d] failed to write %d", i, key_idx);
             }
-            LOG_INFO("End write thread %d", i);
+            if (i == 0)
+              LOG_INFO("End write threads");
           },
           keys, key_slab_class);
     }
@@ -150,7 +156,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start read thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start read threads");
             std::string value;
             for (int j = 0; j < write_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -167,7 +174,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto cmp = memcmp(value.c_str(), expect_val.key, 16);
               ASSERT(cmp == 0, "expect %.16s, got %.16s", expect_val.key, value.c_str());
             }
-            LOG_INFO("End read thread %d", i);
+            if (i == 0)
+              LOG_INFO("End read threads");
           },
           keys, key_slab_class);
     }
@@ -182,7 +190,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start update thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start update thread");
             std::string value;
             for (int j = 0; j < update_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -199,7 +208,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto succ = local_engine->write(k[key_idx].to_string(), value);
               ASSERT(succ, "[thread %d] failed to update %d", i, key_idx);
             }
-            LOG_INFO("End update thread %d", i);
+            if (i == 0)
+              LOG_INFO("End update threads");
           },
           keys, key_slab_class);
     }
@@ -299,7 +309,8 @@ void part2(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start write thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start write threads");
             std::string value;
             for (int j = 0; j < delete_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -316,7 +327,8 @@ void part2(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto succ = local_engine->write(k[key_idx].to_string(), value);
               ASSERT(succ, "[thread %d] failed to write %d", i, key_idx);
             }
-            LOG_INFO("End write thread %d", i);
+            if (i == 0)
+              LOG_INFO("End write threads");
           },
           keys, key_slab_class);
     }
@@ -342,7 +354,8 @@ void part3(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
-            LOG_INFO("Start read thread %d", i);
+            if (i == 0)
+              LOG_INFO("Start read threads");
             std::string value;
             for (int j = 0; j < read_op_per_thread; j++) {
               // if (j % M == 0) {
@@ -359,7 +372,8 @@ void part3(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
               auto cmp = memcmp(value.c_str(), expect_val.key, 16);
               ASSERT(cmp == 0, "expect %.16s, got %.16s", expect_val.key, value.c_str());
             }
-            LOG_INFO("End read thread %d", i);
+            if (i == 0)
+              LOG_INFO("End read threads");
           },
           keys, key_slab_class);
     }
@@ -415,12 +429,14 @@ int main() {
   for (int i = 0; i < thread_num; i++) {
     threads.emplace_back(
         [i](int *zipf_index) {
-          LOG_INFO("Start gen zipf key index %d", i);
+          if (i == 0)
+            LOG_INFO("Start gen zipf key index");
           Zipf zipf(insert_num, 0x123ab324 * (i + 1), 2);
           for (int j = 0; j < read_op_per_thread; j++) {
             zipf_index[read_op_per_thread * i + j] = zipf.Next();
           }
-          LOG_INFO("End gen zipf key index %d", i);
+          if (i == 0)
+            LOG_INFO("End gen zipf key index");
         },
         zipf_index);
   }
@@ -432,13 +448,19 @@ int main() {
   LOG_INFO(" end gen zipf key!");
 
   part1(local_engine, keys, zipf_index, key_slab_class, threads);
+  local_engine->Info();
   part2(local_engine, keys, zipf_index, key_slab_class, threads);
+  local_engine->Info();
   part3(local_engine, keys, zipf_index, key_slab_class, threads);
+  local_engine->Info();
 
+  delete[] keys;
   delete[] key_slab_class;
   delete[] zipf_index;
 
+  LOG_INFO("Engine Use DRAM Space: %lf GB", ((double)physical_memory_used_by_process())/1024.0/1024.0);
   local_engine->stop();
   delete local_engine;
+  LOG_INFO("Engine Use DRAM Space: %lf GB", ((double)physical_memory_used_by_process())/1024.0/1024.0);
   return 0;
 }

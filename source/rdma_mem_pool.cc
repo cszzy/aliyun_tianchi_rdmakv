@@ -2,50 +2,6 @@
 
 namespace kv {
 
-// int RDMAMemPool::get_remote_mem(uint64_t size, uint64_t &start_addr, uint32_t &offset) {
-//   if (size > RDMA_ALLOCATE_SIZE) return -1;
-//   // std::lock_guard<std::mutex> lk(m_mutex_);
-//   m_mutex_.lock();
-//   int page_index = (size == 80) ? 0 : (size - 81) / 16;
-//   Page *page = nullptr;
-// retry:
-//   // get slot from page
-//   page = is_using_page_list_[page_index];
-//   if (page == nullptr) {
-//     // alloc remote Mem and new page
-//     uint64_t m_current_mem_;
-//     uint32_t m_rkey_;
-//     int ret = m_rdma_conn_->register_remote_memory(m_current_mem_, m_rkey_, RDMA_ALLOCATE_SIZE);
-//     if (ret) {
-//       printf("register memory fail\n");
-//       m_mutex_.unlock();
-//       return -1;
-//     }
-//     page = new Page(m_current_mem_, (page_index+1)*16 + 80, m_rkey_);
-//     is_using_page_list_[page_index] = page;
-//     used_pages_[m_current_mem_] = page;
-//     bool ret = page->get_free_slot(size, start_addr, offset);
-//     assert(ret = true);
-//     goto end;
-//   } else {
-//     if (page->get_free_slot(size, start_addr, offset) == false) {
-//       is_using_page_list_[page_index] = nullptr;
-//       goto retry;
-//     }
-//   }
-
-// end:
-//   if (offset == 0) {
-//     // std::lock_guard<std::mutex> kl(m_mem_rkey_lock_);
-//     WriteLock wl(m_mem_rkey_lock_);
-//     // m_mem_rkey_lock_.lock_writer();
-//     m_mem_rkey_[start_addr] = page->get_rkey();
-//     // m_mem_rkey_lock_.unlock_writer();
-//   }
-//   m_mutex_.unlock();
-//   return 0;
-// }
-
 /**
  * @brief get mem from remote host
  * 
@@ -62,8 +18,8 @@ bool RDMAMemPool::get_remote_mem(internal_value_t &iv, uint64_t &page_start_addr
 
   int page_index = (size == 80) ? 0 : (size - 81) / 16;
   Page *page = nullptr;
-  page_info_lock_.lock_writer();
   slot_size = (page_index+1)*16 + 80;
+  page_info_lock_.lock_writer();
 
 retry:
   // get slot from page
@@ -79,20 +35,56 @@ retry:
     page_id_t page_id = alloc_page_id_++;
     assert(page_id < MAX_PAGE_NUMS);
     page = new Page(page_id, page_start_addr, slot_size, rkey);
-    is_using_page_list_[page_index] = page;
     page_map_[page_id] = page;
-    bool res = page->get_free_slot(iv.page_id, iv.cache_line_id, iv.slot_id);
+#ifdef STATIC_REMOTE_MEM_USE
+    remote_mem_use+=2; 
+#endif
+    Page *old = nullptr;
+    bool res = is_using_page_list_[page_index].compare_exchange_strong(old, page, std::memory_order_acquire);
+    if (false == res){
+      assert(false); // tmp不可能出现
+      // CAS失败，放入empty_page_list
+      empty_page_list.enqueue(page);
+      page = is_using_page_list_[page_index];
+      assert(page);
+    }
+    
+    res = page->get_free_slot(iv.page_id, iv.cache_line_id, iv.slot_id);
     assert(res);
   } else {
     if (false == page->get_free_slot(iv.page_id, iv.cache_line_id, iv.slot_id)) {
-      if (free_page_list_.empty()) {
-        is_using_page_list_[page_index] = nullptr;
+      // first. lookup notfull_page_list_
+      // second. lookup empty_page_list
+redo2:
+      Page *pp = nullptr;
+      if (notfull_page_list_[page_index].try_dequeue(pp)) {
+        assert(pp);
+        if (pp->is_empty()) {
+          bool res = empty_page_list.enqueue(pp);
+          assert(res);
+          goto redo2;
+        } else {
+          bool res = is_using_page_list_[page_index].compare_exchange_strong(page, pp, std::memory_order_acquire);
+          if (false == res){
+            assert(false); // tmp不可能出现
+            // CAS失败，放回notfull_page_list_
+            res = notfull_page_list_[page_index].enqueue(pp);
+            assert(res);
+          }
+        }
+      } else if (empty_page_list.try_dequeue(pp)) {
+        assert(pp);
+        pp->format_page(slot_size);
+        bool res = is_using_page_list_[page_index].compare_exchange_strong(page, pp, std::memory_order_acquire);
+         if (false == res){
+          assert(false); // tmp不可能出现
+          // CAS失败，放回empty_page_list
+          res = empty_page_list.enqueue(pp);
+          assert(res);
+        }
       } else {
-        // TODO: 移动代码，减少锁占用
-        Page *p = free_page_list_.front();
-        free_page_list_.pop();
-        p->format_page(slot_size);
-        is_using_page_list_[page_index] = p;
+        assert(pp == nullptr);
+        is_using_page_list_[page_index].compare_exchange_strong(page, pp, std::memory_order_acquire);
       }
       goto retry;
     }
@@ -110,10 +102,11 @@ bool RDMAMemPool::free_slot_in_page(const internal_value_t &iv) {
     return false;
   }
   page_info_lock_.lock_writer();
-  page->free_slot(iv.cache_line_id, iv.slot_id);
-  if (page->is_empty() && 
-      (page != is_using_page_list_[(page->get_slot_size()-80)/16 - 1])) {
-    free_page_list_.push(page);
+  int page_index = (page->get_slot_size()-80)/16 - 1;
+  bool ret = page->free_slot(iv.cache_line_id, iv.slot_id);
+  //页空余达到比例且不为正在使用的page, 放入not_full_page_list备用
+  if (true == ret && page != is_using_page_list_[page_index]) {
+    notfull_page_list_[page_index].enqueue(page);
   }
   page_info_lock_.unlock_writer();
   return true;

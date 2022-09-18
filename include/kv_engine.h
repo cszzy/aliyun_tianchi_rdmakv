@@ -21,7 +21,7 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
-#define SHARDING_NUM 119
+#define SHARDING_NUM 87
 #define BUCKET_NUM 1048573
 
 #define THREAD_NUM 16
@@ -29,7 +29,7 @@
 #define KV_NUMS (16 * 12000000) // 192000000
 #define SLOT_BITMAP_NUMS 1920
 
-// #define USE_AES
+#define USE_AES
 
 #ifdef USE_AES
 #include "ippcp.h"
@@ -202,6 +202,16 @@ class LocalEngine : public Engine {
   /* Evaluation problem will call this function. */
   crypto_message_t* get_aes() { return &m_aes_; }
 #endif
+
+  void Info() {
+#ifdef STATIC_REMOTE_MEM_USE
+    uint64_t total_remote_mem_use = 0;
+    for (int i = 0; i < SHARDING_NUM; i++) {
+      total_remote_mem_use += m_mem_pool_[i]->get_remote_mem_use();
+    }
+    std::cout << "Total Remote Mem Use: " << ((double)total_remote_mem_use)/1024.0 << " GB" << std::endl;
+#endif
+  }
 
  private:
   kv::ConnectionManager *m_rdma_conn_;

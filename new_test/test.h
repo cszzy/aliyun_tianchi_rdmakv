@@ -37,7 +37,7 @@ inline TestKey *genKey(int num) {
 
   int a[4];
   for (int i = 0; i < num; i++) {
-    if (i % 10000000 == 0) {
+    if (i % 50000000 == 0) {
       LOG_INFO("finish i %d", i);
     }
     a[0] = 0x12341234;
