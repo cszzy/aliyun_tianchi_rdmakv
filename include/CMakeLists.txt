@@ -1,5 +1,4 @@
-set(BASE_INCLUDE
-    kv_engine.h msg.h rdma_conn.h rdma_conn_manager.h rdma_mem_pool.h lru_cache.h spinlock.h conqueue.h rwlock.h)
+set(BASE_INCLUDE *.h)
 
 install(FILES   ${BASE_INCLUDE}
     DESTINATION include)
