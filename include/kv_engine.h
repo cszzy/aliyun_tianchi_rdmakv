@@ -37,6 +37,15 @@
 
 namespace kv {
 
+// 用于slot分配的bitmap
+typedef struct slot_bitmap {
+  bitmap* bitmap_;
+  uint32_t bitmap_id;
+  slot_bitmap(bitmap* b, uint32_t id) : bitmap_(b), bitmap_id(id) {}
+}slot_bitmap;
+
+extern thread_local struct slot_bitmap* cur_slot_bitmap_;
+
 #ifdef USE_AES
 
 /* Encryption algorithm competitor can choose. */
@@ -220,7 +229,7 @@ class LocalEngine : public Engine {
    * extra memory overhead into consideration */
   // TODO: 将slot array分片？
   hash_map_slot m_hash_slot_array_[KV_NUMS];
-  bitmap *slot_array_bitmap_[SLOT_BITMAP_NUMS]; //使用位图管理，是线程安全的嘛？
+  // bitmap *slot_array_bitmap_[SLOT_BITMAP_NUMS]; //使用位图管理，是线程安全的嘛？
   // std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
   hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
   RDMAMemPool *m_mem_pool_[SHARDING_NUM];
@@ -228,6 +237,8 @@ class LocalEngine : public Engine {
 #ifdef USE_AES
   crypto_message_t m_aes_;
 #endif
+  slot_bitmap* slot_map_[SLOT_BITMAP_NUMS];
+  moodycamel::ConcurrentQueue<slot_bitmap*> slot_queue_; // 存空闲bitmap
 };
 
 // const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;

@@ -4,6 +4,8 @@
 #include "kv_engine.h"
 namespace kv {
 
+thread_local struct slot_bitmap* cur_slot_bitmap_ = nullptr;
+
 /**
  * @description: start local engine service
  * @param {string} addr    the address string of RemoteEngine to connect
@@ -19,7 +21,11 @@ bool LocalEngine::start(const std::string addr, const std::string port) {
   }
 
   for (int i = 0; i < SLOT_BITMAP_NUMS; i++) {
-    slot_array_bitmap_[i] = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
+    bitmap *p = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
+    assert(p);
+    slot_bitmap *sb = new slot_bitmap(p, i);
+    slot_map_[i] = sb;
+    slot_queue_.enqueue(sb);
   }
 
   for (int i = 0; i < SHARDING_NUM; i++) {
@@ -222,15 +228,32 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
   /* Fetch a new slot from slot_array, do not need to new. */
   /* Update the hash_map. */
   int slot;
-  for (int i = 0; i < SLOT_BITMAP_NUMS; i++) {
-    slot = get_free(slot_array_bitmap_[i]);
-    if (-1 == slot)
-      continue;
-    else {
-      slot = i * (KV_NUMS/SLOT_BITMAP_NUMS) + slot;
+  if (unlikely(nullptr == cur_slot_bitmap_)) {
+    bool ret = slot_queue_.try_dequeue(cur_slot_bitmap_);
+    assert(ret);
+  }
+
+  for(;;) {
+    slot = get_free(cur_slot_bitmap_->bitmap_);
+    if (-1 == slot) {
+      bool ret = slot_queue_.try_dequeue(cur_slot_bitmap_);
+      assert(ret);
+    } else {
+      slot = cur_slot_bitmap_->bitmap_id * (KV_NUMS/SLOT_BITMAP_NUMS) + slot;
       break;
     }
   }
+  
+
+  // for (int i = 0; i < SLOT_BITMAP_NUMS; i++) {
+  //   slot = get_free(slot_array_bitmap_[i]);
+  //   if (-1 == slot)
+  //     continue;
+  //   else {
+  //     slot = i * (KV_NUMS/SLOT_BITMAP_NUMS) + slot;
+  //     break;
+  //   }
+  // }
   assert(slot >= 0);
   m_hash_map_[index].insert(key, internal_value, slot);
   return true;
@@ -287,7 +310,9 @@ bool LocalEngine::deleteK(const std::string &key) {
 
   int bitmap_id = kv_slot_id / (KV_NUMS/SLOT_BITMAP_NUMS);
   int slot_id = kv_slot_id % (KV_NUMS/SLOT_BITMAP_NUMS);
-  put_back(slot_array_bitmap_[bitmap_id], slot_id);
+  put_back(slot_map_[bitmap_id]->bitmap_, slot_id);
+  if (slot_map_[bitmap_id]->bitmap_->free_cnt * 10 == KV_NUMS/SLOT_BITMAP_NUMS)
+    slot_queue_.enqueue(slot_map_[bitmap_id]);
   
   // update page's bitmap and kv num, choose whether push empty page into free_list
   bool ret = m_mem_pool_[index]->free_slot_in_page(iv);
