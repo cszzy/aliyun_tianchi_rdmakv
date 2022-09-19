@@ -21,7 +21,7 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
-#define SHARDING_NUM 97
+#define SHARDING_NUM 115
 #define BUCKET_NUM 1048573
 
 #define REMOTE_MEM_SPACE (1 << 35ul) // 32GB
