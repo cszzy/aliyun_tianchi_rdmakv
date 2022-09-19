@@ -201,6 +201,7 @@ class LocalEngine : public Engine {
   bool encrypted(const std::string value, std::string &encrypt_value);
   /* Evaluation problem will call this function. */
   crypto_message_t* get_aes() { return &m_aes_; }
+  // char *decrypt(const char *value, size_t len);
 #endif
 
   void Info() {

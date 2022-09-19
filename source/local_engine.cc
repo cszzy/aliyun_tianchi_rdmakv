@@ -60,7 +60,7 @@ bool LocalEngine::alive() { return true; }
  */
 bool LocalEngine::set_aes() {
   //Current algorithm is not supported, just for demonstration.
-  m_aes_.algo = CFB;
+  m_aes_.algo = CTR;
   m_aes_.key_len = 16;
   m_aes_.key = new Ipp8u[16]{0x60, 0x3d, 0xeb, 0x10,
   0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0,
@@ -113,6 +113,27 @@ bool LocalEngine::encrypted(const std::string value, std::string &encrypt_value)
     m_encrypt_val = nullptr;
   return true;
 }
+
+// char *LocalEngine::decrypt(const char *value, size_t len) {
+//   crypto_message_t *aes_get = get_aes();
+//   Ipp8u *ciph = (Ipp8u *)malloc(sizeof(Ipp8u) * len);
+//   memset(ciph, 0, len);
+//   memcpy(ciph, value, len);
+
+//   int ctxSize;               // AES context size
+//   ippsAESGetSize(&ctxSize);  // evaluating AES context size
+//   // allocate memory for AES context
+//   IppsAESSpec *ctx = (IppsAESSpec *)(new Ipp8u[ctxSize]);
+//   ippsAESInit(aes_get->key, aes_get->key_len, ctx, ctxSize);
+//   Ipp8u ctr[aes_get->blk_size];
+//   memcpy(ctr, aes_get->counter, aes_get->counter_len);
+
+//   Ipp8u deciph[len];
+//   ippsAESDecryptCTR(ciph, deciph, len, ctx, ctr, aes_get->counter_bit);
+//   memcpy(ciph, deciph, len);
+//   return (char *)ciph;
+// }
+
 #endif
 
 /**
