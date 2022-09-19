@@ -4,8 +4,6 @@
 #include "kv_engine.h"
 namespace kv {
 
-thread_local int my_thread_id = -1;
-
 /**
  * @description: start local engine service
  * @param {string} addr    the address string of RemoteEngine to connect

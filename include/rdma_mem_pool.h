@@ -5,7 +5,7 @@
 #include "rdma_conn_manager.h"
 #include "conqueue.h"
 
-#define STATIC_REMOTE_MEM_USE
+// #define STATIC_REMOTE_MEM_USE
 #define PAGE_LEVELS 64
 
 namespace kv {
@@ -20,7 +20,7 @@ typedef struct internal_value_t {
 
 // const int internal_value_t_size = sizeof(internal_value_t);
 
-#define MAX_PAGE_NUMS 256 // 每个pool256个page应该足够用
+#define MAX_PAGE_NUMS 512 // 每个pool256个page应该足够用
 
 class RDMAMemPool {
  public:
@@ -59,7 +59,7 @@ class RDMAMemPool {
 
   Page **page_map_; // 目前设置大小为256，应该足够 读写不需要加锁(alloc_page_id_顺序加锁分配到)
 #ifdef STATIC_REMOTE_MEM_USE
-  std::atomic<uint64_t> remote_mem_use; // 单位为MB
+  std::atomic<uint64_t> remote_mem_use; // 单位为B
 #endif
   rw_spin_lock page_info_lock_;
 };

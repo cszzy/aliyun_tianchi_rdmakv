@@ -6,14 +6,14 @@ add_executable(
     client
     client.cc
 )
-target_link_libraries(client polarkv rdmacm ibverbs ibumad pci)
+target_link_libraries(client polarkv rdmacm ibverbs ibumad pci ippcp)
 
 
 add_executable(
     server
     server.cc
 )
-target_link_libraries(server polarkv rdmacm ibverbs ibumad pci)
+target_link_libraries(server polarkv rdmacm ibverbs ibumad pci ippcp)
 
 add_executable(
     bitmap_test

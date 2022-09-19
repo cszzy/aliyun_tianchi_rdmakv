@@ -7,7 +7,7 @@
 // 增加分级page
 #define CACHELINE_NUMS (1024)
 #define CACHELINE_SIZE (1 << 14) // 16K
-#define RDMA_ALLOCATE_SIZE (1 << 21ul) // 每次分配的page size, 2M
+#define RDMA_ALLOCATE_SIZE (1 << 20ul) // 每次分配的page size
 #define BITMAP_NUMS (RDMA_ALLOCATE_SIZE/CACHELINE_SIZE)
 
 namespace kv {

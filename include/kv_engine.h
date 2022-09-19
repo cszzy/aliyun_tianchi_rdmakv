@@ -21,7 +21,7 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
-#define SHARDING_NUM 87
+#define SHARDING_NUM 97
 #define BUCKET_NUM 1048573
 
 #define THREAD_NUM 16
@@ -209,7 +209,7 @@ class LocalEngine : public Engine {
     for (int i = 0; i < SHARDING_NUM; i++) {
       total_remote_mem_use += m_mem_pool_[i]->get_remote_mem_use();
     }
-    std::cout << "Total Remote Mem Use: " << ((double)total_remote_mem_use)/1024.0 << " GB" << std::endl;
+    std::cout << "Total Remote Mem Use: " << ((double)total_remote_mem_use)/1024.0/1024.0/1024.0 << " GB" << std::endl;
 #endif
   }
 

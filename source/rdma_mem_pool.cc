@@ -37,7 +37,7 @@ retry:
     page = new Page(page_id, page_start_addr, slot_size, rkey);
     page_map_[page_id] = page;
 #ifdef STATIC_REMOTE_MEM_USE
-    remote_mem_use+=2; 
+    remote_mem_use += RDMA_ALLOCATE_SIZE; 
 #endif
     Page *old = nullptr;
     bool res = is_using_page_list_[page_index].compare_exchange_strong(old, page, std::memory_order_acquire);
