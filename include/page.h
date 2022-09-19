@@ -25,6 +25,9 @@ public:
         }
     }
 
+    Page(uint64_t start_addr, uint32_t rkey) : 
+        start_addr_(start_addr), kv_nums_(0), slot_size_(0), m_rkey_(rkey) {}
+
     ~Page() { // TODO，归还内存,不涉及Page析构，暂时不需要实现
     
     }
@@ -59,6 +62,15 @@ public:
         slot_size_ = slot_size;
         for (int i = 0; i < BITMAP_NUMS; i++) {
             delete bitmap_[i];
+            bitmap_[i] = create_bitmap(CACHELINE_SIZE/slot_size_);
+        }
+    }
+
+    void format_newpage(uint16_t page_id, uint16_t slot_size) {
+        page_id_ = page_id;
+        assert(0 == kv_nums_);
+        slot_size_ = slot_size;
+        for (int i = 0; i < BITMAP_NUMS; i++) {
             bitmap_[i] = create_bitmap(CACHELINE_SIZE/slot_size_);
         }
     }

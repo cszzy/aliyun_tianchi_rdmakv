@@ -1,6 +1,9 @@
 #include "rdma_mem_pool.h"
-
+#include "kv_engine.h"
 namespace kv {
+
+extern thread_local int my_thread_id;
+extern std::queue<Page*> *page_pool_[THREAD_NUM];
 
 /**
  * @brief get mem from remote host
@@ -26,16 +29,22 @@ retry:
   page = is_using_page_list_[page_index];
   if (page == nullptr) {
     // alloc remote Mem and new page
-    int ret = m_rdma_conn_->register_remote_memory(page_start_addr, rkey, RDMA_ALLOCATE_SIZE);
-    if (ret) {
-      printf("register memory fail\n");
-      page_info_lock_.unlock_writer();
-      return -1;
-    }
+    // int ret = m_rdma_conn_->register_remote_memory(page_start_addr, rkey, RDMA_ALLOCATE_SIZE);
+    // if (ret) {
+    //   printf("register memory fail\n");
+    //   page_info_lock_.unlock_writer();
+    //   return -1;
+    // }
     page_id_t page_id = alloc_page_id_++;
     assert(page_id < MAX_PAGE_NUMS);
-    page = new Page(page_id, page_start_addr, slot_size, rkey);
+    // page = new Page(page_id, page_start_addr, slot_size, rkey);
+    page = page_pool_[my_thread_id]->front();
+    assert(page);
+    page_pool_[my_thread_id]->pop();
+    page->format_newpage(page_id, slot_size);
     page_map_[page_id] = page;
+    page_start_addr = page->get_start_addr();
+    rkey = page->get_rkey();
 #ifdef STATIC_REMOTE_MEM_USE
     remote_mem_use += RDMA_ALLOCATE_SIZE; 
 #endif

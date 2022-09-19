@@ -24,6 +24,9 @@
 #define SHARDING_NUM 97
 #define BUCKET_NUM 1048573
 
+#define REMOTE_MEM_SPACE (1 << 35ul) // 32GB
+#define PER_ALLOC_SIZE (1 << 30ul) //1G
+
 #define THREAD_NUM 16
 
 #define KV_NUMS (16 * 12000000) // 192000000
@@ -36,6 +39,8 @@
 #endif
 
 namespace kv {
+
+extern std::queue<Page*> *page_pool_[THREAD_NUM]; // 每个线程一个池子
 
 // 用于slot分配的bitmap
 typedef struct slot_bitmap {
@@ -188,7 +193,7 @@ class Engine {
 /* Local-side engine */
 class LocalEngine : public Engine {
  public:
- LocalEngine(){};
+  LocalEngine() : alloc_thread_id_(0) {};
 
   ~LocalEngine(){};
 
@@ -239,6 +244,8 @@ class LocalEngine : public Engine {
 #endif
   slot_bitmap* slot_map_[SLOT_BITMAP_NUMS];
   moodycamel::ConcurrentQueue<slot_bitmap*> slot_queue_; // 存空闲bitmap
+
+  std::atomic<int> alloc_thread_id_;
 };
 
 // const double a = sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0;
