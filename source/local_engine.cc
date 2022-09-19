@@ -59,15 +59,24 @@ bool LocalEngine::alive() { return true; }
  * @return {bool}  true for success
  */
 bool LocalEngine::set_aes() {
-  //Current algorithm is not supported, just for demonstration.
   m_aes_.algo = CTR;
+
+  Ipp8u key[16] = {0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00};
   m_aes_.key_len = 16;
-  m_aes_.key = new Ipp8u[16]{0x60, 0x3d, 0xeb, 0x10,
-  0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0,
-  0x85, 0x7d, 0x77, 0x81};
-  if(nullptr == m_aes_.key) return false;
+  m_aes_.key = (Ipp8u *)malloc(sizeof(Ipp8u) * m_aes_.key_len);
+  memcpy(m_aes_.key, key, m_aes_.key_len);
+
+  m_aes_.blk_size = 16;
+  m_aes_.counter_len = 16;
+  Ipp8u ctr[] = {0x1f, 0x1e, 0x1d, 0x1c, 0x1b, 0x1a, 0x19, 0x18, 0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11, 0x10};
+  m_aes_.counter = (Ipp8u *)malloc(sizeof(Ipp8u) * m_aes_.blk_size);
+  memcpy(m_aes_.counter, ctr, sizeof(ctr));
+
+  m_aes_.piv = nullptr;
+  m_aes_.piv_len = 0;
+
+  m_aes_.counter_bit = 64;
   return true;
-  //The other algorithms may need to set piv、counter, etc. you need to supply it.
 }
 
 /**
@@ -81,11 +90,11 @@ bool LocalEngine::encrypted(const std::string value, std::string &encrypt_value)
   /*! Size for AES context structure */
   int m_ctxsize = 0;
   /*! Pointer to AES context structure */
-  IppsAESSpec* m_pAES = nullptr;
+  IppsAESSpec *m_pAES = nullptr;
   /*! Error status */
   IppStatus m_status = ippStsNoErr;
   /*! Pointer to encrypted plain text*/
-  Ipp8u* m_encrypt_val = nullptr;
+  Ipp8u *m_encrypt_val = nullptr;
   m_encrypt_val = new Ipp8u[value.size()];
   if (nullptr == m_encrypt_val) return false;
 
@@ -93,24 +102,27 @@ bool LocalEngine::encrypted(const std::string value, std::string &encrypt_value)
   m_status = ippsAESGetSize(&m_ctxsize);
   if (ippStsNoErr != m_status) return false;
   /* 2. Allocate memory for AES context structure */
-  m_pAES = (IppsAESSpec*)(new Ipp8u[m_ctxsize]);
+  m_pAES = (IppsAESSpec *)(new Ipp8u[m_ctxsize]);
   if (nullptr == m_pAES) return false;
   /* 3. Initialize AES context */
   m_status = ippsAESInit(m_aes_.key, m_aes_.key_len, m_pAES, m_ctxsize);
   if (ippStsNoErr != m_status) return false;
-  /* 4. Encryption */
-  m_status = ippsAESEncryptECB((Ipp8u *)value.c_str(), m_encrypt_val, value.size(), m_pAES);
+  /* 4. counter bits */
+  Ipp8u ctr[m_aes_.blk_size];
+  memcpy(ctr, m_aes_.counter, m_aes_.counter_len);
+  /* 5. Encryption */
+  m_status = ippsAESEncryptCTR((Ipp8u *)value.c_str(), m_encrypt_val, value.size(), m_pAES, ctr, m_aes_.counter_bit);
   if (ippStsNoErr != m_status) return false;
-  /* 5. Remove secret and release resources */
-  ippsAESInit(0,m_aes_.key_len, m_pAES, m_ctxsize);
+  /* 6. Remove secret and release resources */
+  ippsAESInit(0, m_aes_.key_len, m_pAES, m_ctxsize);
 
-  if (m_pAES) delete [] (Ipp8u*)m_pAES;
+  if (m_pAES) delete[](Ipp8u *) m_pAES;
   m_pAES = nullptr;
-  std::string tmp(reinterpret_cast<const char*>(m_encrypt_val), value.size());
+  std::string tmp(reinterpret_cast<const char *>(m_encrypt_val), value.size());
   encrypt_value = tmp;
 
-  if (m_encrypt_val) delete [] m_encrypt_val;
-    m_encrypt_val = nullptr;
+  if (m_encrypt_val) delete[] m_encrypt_val;
+  m_encrypt_val = nullptr;
   return true;
 }
 
