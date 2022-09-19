@@ -17,6 +17,7 @@ std::queue<Page*> *page_pool_[THREAD_NUM];
  * @return {bool} true for success
  */
 bool LocalEngine::start(const std::string addr, const std::string port) {
+  auto time_start = TIME_NOW;
   m_rdma_conn_ = new ConnectionManager();
   if (m_rdma_conn_ == nullptr) return -1;
   if (m_rdma_conn_->init(addr, port, 4, 20)) {
@@ -24,24 +25,93 @@ bool LocalEngine::start(const std::string addr, const std::string port) {
     return false;
   }
 
-  for (int i = 0; i < SLOT_BITMAP_NUMS; i++) {
-    bitmap *p = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
-    assert(p);
-    slot_bitmap *sb = new slot_bitmap(p, i);
-    slot_map_[i] = sb;
-    slot_queue_.enqueue(sb);
-  }
+  // for (int i = 0; i < SLOT_BITMAP_NUMS; i++) {
+  //   bitmap *p = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
+  //   assert(p);
+  //   slot_bitmap *sb = new slot_bitmap(p, i);
+  //   slot_map_[i] = sb;
+  //   slot_queue_.enqueue(sb);
+  // }
 
-  for (int i = 0; i < SHARDING_NUM; i++) {
-    m_hash_map_[i].set_global_slot_array(m_hash_slot_array_);
-  }
+  // for (int i = 0; i < SHARDING_NUM; i++) {
+  //   m_hash_map_[i].set_global_slot_array(m_hash_slot_array_);
+  // }
 
-  for (int i = 0; i < SHARDING_NUM; i++) {
-    m_mem_pool_[i] = new RDMAMemPool(m_rdma_conn_);
-  }
+  // for (int i = 0; i < SHARDING_NUM; i++) {
+  //   m_mem_pool_[i] = new RDMAMemPool(m_rdma_conn_);
+  // }
   
-  for (int i = 0; i < SHARDING_NUM; i++) {
-    m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
+  // for (int i = 0; i < SHARDING_NUM; i++) {
+  //   m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
+  // }
+
+  // for (int i = 0; i < THREAD_NUM; i++) {
+  //   page_pool_[i] = new std::queue<Page *>();
+  // }
+
+  // for (int i = 0; i < THREAD_NUM; i++) {
+  //   size_t kk = 2;
+  //   for (size_t k = 0; k < kk; k++) {
+  //     uint64_t mem_start_addr = 0;
+  //     uint32_t rkey;
+  //     int ret = m_rdma_conn_->register_remote_memory(mem_start_addr, rkey, PER_ALLOC_SIZE); // 一次分配1G
+  //     if (ret) {
+  //       printf("register memory fail\n");
+  //       return -1;
+  //     }
+  //     uint64_t page_start_addr = mem_start_addr;
+  //     for (int j = 0; j < 1024; j++) {
+  //       page_pool_[i]->push(new Page(page_start_addr, rkey));
+  //       page_start_addr += RDMA_ALLOCATE_SIZE;
+  //     }
+  //   }
+  // }
+
+  // std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; 
+
+  std::vector<std::thread> threads;
+  // multi thread init
+  for (int t = 0; t < THREAD_NUM; t++) {
+    threads.emplace_back(
+      [&](int thread_id) {
+        {
+          int per_thead_work = SLOT_BITMAP_NUMS / THREAD_NUM;
+          int start_pos = thread_id * per_thead_work;
+          int end_pos = (thread_id == THREAD_NUM-1) ? SLOT_BITMAP_NUMS : (thread_id+1) * per_thead_work;
+          for (int i = start_pos; i < end_pos; i++) {
+            bitmap *p = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
+            assert(p);
+            slot_bitmap *sb = new slot_bitmap(p, i);
+            slot_map_[i] = sb;
+            slot_queue_.enqueue(sb);
+          }
+        }
+
+        {
+          int per_thead_work = SHARDING_NUM / THREAD_NUM;
+          int start_pos = thread_id * per_thead_work;
+          int end_pos = (thread_id == THREAD_NUM-1) ? SHARDING_NUM : (thread_id+1) * per_thead_work;
+
+          for (int i = start_pos; i < end_pos; i++) {
+            m_hash_map_[i].set_global_slot_array(m_hash_slot_array_);
+          }
+
+          for (int i = start_pos; i < end_pos; i++) {
+            m_mem_pool_[i] = new RDMAMemPool(m_rdma_conn_);
+          }
+          
+          for (int i = start_pos; i < end_pos; i++) {
+            m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
+          }
+
+          page_pool_[thread_id] = new std::queue<Page *>();
+        }
+      }, t
+    );
+  }
+
+  for (auto &th : threads) {
+    th.join();
   }
 
   for (int i = 0; i < THREAD_NUM; i++) {
@@ -66,68 +136,10 @@ bool LocalEngine::start(const std::string addr, const std::string port) {
     }
   }
 
-  // std::cout << "LocalEngine size:" << sizeof (LocalEngine) / 1024.0 / 1024.0 / 1024.0 << "GB" << std::endl; 
-
-  // std::vector<std::thread> threads;
-  // // multi thread init
-  // for (int t = 0; t < THREAD_NUM; t++) {
-  //   threads.emplace_back(
-  //     [&](int thread_id) {
-  //       {
-  //         int per_thead_work = SLOT_BITMAP_NUMS / THREAD_NUM;
-  //         int start_pos = thread_id * per_thead_work;
-  //         int end_pos = (thread_id == THREAD_NUM-1) ? SLOT_BITMAP_NUMS : (thread_id+1) * per_thead_work;
-  //         for (int i = start_pos; i < end_pos; i++) {
-  //           bitmap *p = create_bitmap(KV_NUMS/SLOT_BITMAP_NUMS);
-  //           assert(p);
-  //           slot_bitmap *sb = new slot_bitmap(p, i);
-  //           slot_map_[i] = sb;
-  //           slot_queue_.enqueue(sb);
-  //         }
-  //       }
-
-  //       {
-  //         int per_thead_work = SHARDING_NUM / THREAD_NUM;
-  //         int start_pos = thread_id * per_thead_work;
-  //         int end_pos = (thread_id == THREAD_NUM-1) ? SHARDING_NUM : (thread_id+1) * per_thead_work;
-
-  //         for (int i = start_pos; i < end_pos; i++) {
-  //           m_hash_map_[i].set_global_slot_array(m_hash_slot_array_);
-  //         }
-
-  //         for (int i = start_pos; i < end_pos; i++) {
-  //           m_mem_pool_[i] = new RDMAMemPool(m_rdma_conn_);
-  //         }
-          
-  //         for (int i = start_pos; i < end_pos; i++) {
-  //           m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
-  //         }
-
-  //         page_pool_[thread_id] = new std::queue<Page *>();
-
-  //         for (size_t k = 0; k < 2; k++) {
-  //           uint64_t mem_start_addr = 0;
-  //           uint32_t rkey;
-  //           int ret = m_rdma_conn_->register_remote_memory(mem_start_addr, rkey, PER_ALLOC_SIZE); // 一次分配1G
-  //           if (ret) {
-  //             printf("register memory fail\n");
-  //             return -1;
-  //           }
-  //           uint64_t page_start_addr = mem_start_addr;
-  //           for (int j = 0; j < 1024; j++) {
-  //             page_pool_[thread_id]->push(new Page(page_start_addr, rkey));
-  //             page_start_addr += RDMA_ALLOCATE_SIZE;
-  //           }
-  //         }
-  //       }
-  //     }, t
-  //   );
-  // }
-
-  // for (auto &th : threads) {
-  //   th.join();
-  // }
-
+  auto time_end = TIME_NOW;
+  auto time_delta = time_end - time_start;
+  auto count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+  std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
   return true;
 }
 
