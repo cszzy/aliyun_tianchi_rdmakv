@@ -5,8 +5,8 @@
 #include <assert.h>
 
 // 增加分级page
-#define CACHELINE_NUMS (512)
-#define CACHELINE_SIZE (1 << 15) // 32K
+#define CACHELINE_NUMS (256)
+#define CACHELINE_SIZE (1 << 16) // 32K
 #define RDMA_ALLOCATE_SIZE (1 << 20ul) // 每次分配的page size
 #define BITMAP_NUMS (RDMA_ALLOCATE_SIZE/CACHELINE_SIZE)
 
