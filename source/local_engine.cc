@@ -6,6 +6,20 @@ namespace kv {
 
 thread_local struct slot_bitmap* cur_slot_bitmap_ = nullptr;
 
+#define STATISTIC_TIME
+
+#ifdef STATISTIC_TIME
+thread_local bool statistic_time_ = false;
+static inline std::string timeToString(std::chrono::system_clock::time_point &t)
+{
+    std::time_t time = std::chrono::system_clock::to_time_t(t);
+    std::string time_str = std::ctime(&time);
+    time_str.resize(time_str.size() - 1);
+    return time_str;
+}
+
+#endif
+
 thread_local int my_thread_id = -1;
 
 std::queue<Page*> *page_pool_[THREAD_NUM]; 
@@ -265,6 +279,13 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
     my_thread_id = alloc_thread_id_++;
     my_thread_id %= THREAD_NUM;
   }
+#ifdef STATISTIC_TIME
+  if (unlikely(statistic_time_ == false)) {
+    statistic_time_ = true;
+    auto time_p = std::chrono::system_clock::now();
+    std::cout << "Current time: " << timeToString(time_p) << std::endl;
+  }
+#endif
   // hash 分区
   int index = std::hash<std::string>()(key) % SHARDING_NUM;
 
@@ -368,6 +389,13 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
  * @return {bool}  true for success
  */
 bool LocalEngine::read(const std::string &key, std::string &value) {
+#ifdef STATISTIC_TIME
+  if (unlikely(statistic_time_ == false)) {
+    statistic_time_ = true;
+    auto time_p = std::chrono::system_clock::now();
+    std::cout << "Current time: " << timeToString(time_p) << std::endl;
+  }
+#endif
   int index = std::hash<std::string>()(key) % SHARDING_NUM;
 
   /* 从hash表查 start_addr 和 offset */
@@ -395,6 +423,13 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
 
 /** The delete interface */
 bool LocalEngine::deleteK(const std::string &key) {
+#ifdef STATISTIC_TIME
+  if (unlikely(statistic_time_ == false)) {
+    statistic_time_ = true;
+    auto time_p = std::chrono::system_clock::now();
+    std::cout << "Current time: " << timeToString(time_p) << std::endl;
+  }
+#endif
   internal_value_t internal_value;
   uint64_t remote_addr;
   uint32_t rkey;

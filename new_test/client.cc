@@ -51,6 +51,18 @@ constexpr int read_op_per_thread = read_num / thread_num;
 // part 3 hot data
 // read 16 * 32M
 
+static inline void bindCore(uint16_t core) {
+    // printf("bind to %d\n", core);
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core, &cpuset);
+    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        printf("can't bind core %d!", core);
+        exit(-1);
+    }
+}
+
 void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_slab_class,
            std::vector<std::thread> &threads) {
   LOG_INFO(" ============= part1 validate ==============>");
@@ -59,9 +71,11 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     auto time_now = TIME_NOW;
     // write 16 * 10M
     threads.clear();
+    auto ts = TIME_NOW;
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start write threads");
             std::string value;
@@ -85,13 +99,19 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (auto &th : threads) {
       th.join();
     }
+    auto te = TIME_NOW;
+    auto time_delta = te - ts;
+    auto count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
 
     // read 16 * 10M
     LOG_INFO(" @@@@@@@@@@@@@ read 16 * 10M @@@@@@@@@@@@@@@");
     threads.clear();
+    ts = TIME_NOW;
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start read threads");
             std::string value;
@@ -115,14 +135,20 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (auto &th : threads) {
       th.join();
     }
+    te = TIME_NOW;
+    time_delta = te - ts;
+    count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
 
     // write 16 * 10M
     // value的大小不更改，只更改内容
     LOG_INFO(" @@@@@@@@@@@@@ write 16 * 10M @@@@@@@@@@@@@@@");
     threads.clear();
+    ts = TIME_NOW;
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start write threads");
             std::string value;
@@ -149,13 +175,19 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (auto &th : threads) {
       th.join();
     }
+    te = TIME_NOW;
+    time_delta = te - ts;
+    count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
 
     // read 16 * 10M
     LOG_INFO(" @@@@@@@@@@@@@ read 16 * 10M @@@@@@@@@@@@@@@");
     threads.clear();
+    ts = TIME_NOW;
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start read threads");
             std::string value;
@@ -182,14 +214,20 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (auto &th : threads) {
       th.join();
     }
+    te = TIME_NOW;
+    time_delta = te - ts;
+    count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
 
     // update 16 * 1M
     // 需要更改value的大小
     LOG_INFO(" @@@@@@@@@@@@@ update 16 * 1M @@@@@@@@@@@@@@@");
     threads.clear();
+    ts = TIME_NOW;
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start update thread");
             std::string value;
@@ -216,6 +254,10 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (auto &th : threads) {
       th.join();
     }
+    te = TIME_NOW;
+    time_delta = te - ts;
+    count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
 
     // // read? < 1M
     // LOG_INFO(" @@@@@@@@@@@@@ read 1M @@@@@@@@@@@@@@@");
@@ -225,6 +267,7 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     // for (int i = 0; i < thread_num; i++) {
     //   threads.emplace_back(
     //       [=](TestKey *k, int *slab_class) {
+                // bindCore(i);
     //         LOG_INFO("Start read thread %d", i);
     //         std::string value;
     //         for (int j = 0; j < read_op_per_thread; j++) {
@@ -249,8 +292,8 @@ void part1(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     // }
 
     auto time_end = TIME_NOW;
-    auto time_delta = time_end - time_now;
-    auto count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
+    time_delta = time_end - time_now;
+    count = std::chrono::duration_cast<std::chrono::microseconds>(time_delta).count();
     std::cout << "Total time:" << count * 1.0 / 1000 / 1000 << "s" << std::endl;
   }
 }
@@ -268,6 +311,7 @@ void part2(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *zipf_index, int *slab_class) {
+            bindCore(i);
             for (int j = 0; j < delete_op_per_thread; j++) {
               int key_idx = j + i * delete_op_per_thread;
               // if (j % (4 * M) == 0) {
@@ -288,6 +332,7 @@ void part2(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *zipf_index, int *slab_class) {
+            bindCore(i);
             for (int j = 0; j < delete_op_per_thread; j++) {
               int key_idx = j + i * delete_op_per_thread;
               // if (j % (4 * M) == 0) {
@@ -309,6 +354,7 @@ void part2(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start write threads");
             std::string value;
@@ -354,6 +400,7 @@ void part3(LocalEngine *local_engine, TestKey *keys, int *zipf_index, int *key_s
     for (int i = 0; i < thread_num; i++) {
       threads.emplace_back(
           [=](TestKey *k, int *slab_class) {
+            bindCore(i);
             if (i == 0)
               LOG_INFO("Start read threads");
             std::string value;
@@ -429,6 +476,7 @@ int main() {
   for (int i = 0; i < thread_num; i++) {
     threads.emplace_back(
         [i](int *zipf_index) {
+          bindCore(i);
           if (i == 0)
             LOG_INFO("Start gen zipf key index");
           Zipf zipf(insert_num, 0x123ab324 * (i + 1), 2);
@@ -451,8 +499,8 @@ int main() {
   local_engine->Info();
   part2(local_engine, keys, zipf_index, key_slab_class, threads);
   local_engine->Info();
-  part3(local_engine, keys, zipf_index, key_slab_class, threads);
-  local_engine->Info();
+  // part3(local_engine, keys, zipf_index, key_slab_class, threads);
+  // local_engine->Info();
 
   delete[] keys;
   delete[] key_slab_class;
