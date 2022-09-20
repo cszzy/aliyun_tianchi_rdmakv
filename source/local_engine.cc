@@ -6,7 +6,7 @@ namespace kv {
 
 thread_local struct slot_bitmap* cur_slot_bitmap_ = nullptr;
 
-#define STATISTIC_TIME
+// #define STATISTIC_TIME
 
 #ifdef STATISTIC_TIME
 thread_local bool statistic_time_ = false;
@@ -97,7 +97,7 @@ bool LocalEngine::start(const std::string addr, const std::string port) {
             assert(p);
             slot_bitmap *sb = new slot_bitmap(p, i);
             slot_map_[i] = sb;
-            slot_queue_.enqueue(sb);
+            per_thread_slot_queue_[thread_id].push(sb);
           }
         }
 
@@ -352,15 +352,18 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
   /* Update the hash_map. */
   int slot;
   if (unlikely(nullptr == cur_slot_bitmap_)) {
-    bool ret = slot_queue_.try_dequeue(cur_slot_bitmap_);
-    assert(ret);
+    cur_slot_bitmap_ = per_thread_slot_queue_[my_thread_id].front();
+    assert(cur_slot_bitmap_);
+    per_thread_slot_queue_[my_thread_id].pop();
   }
 
   for(;;) {
     slot = get_free(cur_slot_bitmap_->bitmap_);
     if (-1 == slot) {
-      bool ret = slot_queue_.try_dequeue(cur_slot_bitmap_);
-      assert(ret);
+      cur_slot_bitmap_ = nullptr;
+      cur_slot_bitmap_ = per_thread_slot_queue_[my_thread_id].front();
+      assert(cur_slot_bitmap_);
+      per_thread_slot_queue_[my_thread_id].pop();
     } else {
       slot = cur_slot_bitmap_->bitmap_id * (KV_NUMS/SLOT_BITMAP_NUMS) + slot;
       break;
@@ -423,6 +426,10 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
 
 /** The delete interface */
 bool LocalEngine::deleteK(const std::string &key) {
+  if (unlikely(-1 == my_thread_id)) {
+    my_thread_id = alloc_thread_id_++;
+    my_thread_id %= THREAD_NUM;
+  }
 #ifdef STATISTIC_TIME
   if (unlikely(statistic_time_ == false)) {
     statistic_time_ = true;
@@ -449,7 +456,7 @@ bool LocalEngine::deleteK(const std::string &key) {
   int slot_id = kv_slot_id % (KV_NUMS/SLOT_BITMAP_NUMS);
   put_back(slot_map_[bitmap_id]->bitmap_, slot_id);
   if (slot_map_[bitmap_id]->bitmap_->free_cnt * 10 == KV_NUMS/SLOT_BITMAP_NUMS)
-    slot_queue_.enqueue(slot_map_[bitmap_id]);
+    per_thread_slot_queue_[my_thread_id].push(slot_map_[bitmap_id]);
   
   // update page's bitmap and kv num, choose whether push empty page into free_list
   bool ret = m_mem_pool_[index]->free_slot_in_page(iv);

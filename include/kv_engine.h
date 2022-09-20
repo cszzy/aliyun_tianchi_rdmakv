@@ -30,7 +30,7 @@
 #define THREAD_NUM 16
 
 #define KV_NUMS (16 * 12000000) // 192000000
-#define SLOT_BITMAP_NUMS 1920
+#define SLOT_BITMAP_NUMS 192000
 
 #define USE_AES
 
@@ -243,7 +243,8 @@ class LocalEngine : public Engine {
   crypto_message_t m_aes_;
 #endif
   slot_bitmap* slot_map_[SLOT_BITMAP_NUMS];
-  moodycamel::ConcurrentQueue<slot_bitmap*> slot_queue_; // 存空闲bitmap
+  // moodycamel::ConcurrentQueue<slot_bitmap*> slot_queue_; // 存空闲bitmap
+  std::queue<slot_bitmap *> per_thread_slot_queue_[THREAD_NUM]; // 每个线程一个slot队列
 
   std::atomic<int> alloc_thread_id_;
 };
