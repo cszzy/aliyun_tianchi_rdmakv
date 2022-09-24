@@ -91,18 +91,28 @@ class hash_map_slot {
 // const int hash_map_slot_size = sizeof(hash_map_slot);
 
 // 注意hash_map_t内部不会会更新位图，需要在外部管理位图
+// 伪共享问题
+struct per_slot {
+  int head_;
+  rw_spin_lock lock_;
+  per_slot() : head_(-1) {}
+};
+
+// const int a = sizeof(per_slot);
+
 class hash_map_t {
  public:
-  int m_bucket[BUCKET_NUM]; // 记录
+  per_slot m_bucket[BUCKET_NUM];
+  // int m_bucket[BUCKET_NUM]; // 记录
+  // rw_spin_lock m_bucket_lock[BUCKET_NUM + 1]; // 每n行共用一个读写锁
   hash_map_slot *global_slot_array;
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  rw_spin_lock m_bucket_lock[BUCKET_NUM + 1]; // 每n行共用一个读写锁
   // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() : global_slot_array(nullptr) {
-    for (int i = 0; i < BUCKET_NUM; ++i) {
-      m_bucket[i] = -1;
-    }
+    // for (int i = 0; i < BUCKET_NUM; ++i) {
+    //   m_bucket[i] = -1;
+    // }
   }
 
   void set_global_slot_array(hash_map_slot *s) {
@@ -114,19 +124,19 @@ class hash_map_t {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
     // ReadLock rl(m_bucket_lock[index]);
-    m_bucket_lock[index].lock_reader();
-    int cur = m_bucket[index];
+    m_bucket[index].lock_.lock_reader();
+    int cur = m_bucket[index].head_;
     
     hash_map_slot *cc = nullptr;
     while (-1 != cur) {
       cc = &(global_slot_array[cur]);
       if (memcmp(cc->key, (void*)key.c_str(), 16) == 0) {
-        m_bucket_lock[index].unlock_reader();
+        m_bucket[index].lock_.unlock_reader();
         return cc;
       }
       cur = cc->next_slot_id;
     }
-    m_bucket_lock[index].unlock_reader();
+    m_bucket[index].lock_.unlock_reader();
     return nullptr;
   }
 
@@ -138,21 +148,21 @@ class hash_map_t {
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
     // WriteLock wl(m_bucket_lock[index]);
-    m_bucket_lock[index].lock_writer();
-    int tmp_id = m_bucket[index];
+    m_bucket[index].lock_.lock_writer();
+    int tmp_id = m_bucket[index].head_;
     /* Insert into the head. */
-    m_bucket[index] = new_slot_id;
+    m_bucket[index].head_ = new_slot_id;
     if (-1 != tmp_id) {
       new_slot->next_slot_id = tmp_id;
     }
-    m_bucket_lock[index].unlock_writer();
+    m_bucket[index].lock_.unlock_writer();
   }
 
   // if not exist or delete fail, return -1, else return kv_slot_id
   int remove(const std::string &key) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
-    m_bucket_lock[index].lock_writer();
-    int cur_id = m_bucket[index];
+    m_bucket[index].lock_.lock_writer();
+    int cur_id = m_bucket[index].head_;
 
     hash_map_slot *cur = nullptr;
     int prev_id = -1;
@@ -160,19 +170,19 @@ class hash_map_t {
       cur = &(global_slot_array[cur_id]);
       if (memcmp(cur->key, (void*)key.c_str(), 16) == 0) {
         if (-1 == prev_id) {
-          m_bucket[index] = cur->next_slot_id;
+          m_bucket[index].head_ = cur->next_slot_id;
         } else {
           hash_map_slot *prev = &(global_slot_array[prev_id]);
           prev->next_slot_id = cur->next_slot_id;
         }
         cur->next_slot_id = -1;
-        m_bucket_lock[index].unlock_writer();
+        m_bucket[index].lock_.unlock_writer();
         return cur_id;
       }
       prev_id = cur_id;
       cur_id = cur->next_slot_id;
     }
-    m_bucket_lock[index].unlock_writer();
+    m_bucket[index].lock_.unlock_writer();
     return -1;
   }
 };
