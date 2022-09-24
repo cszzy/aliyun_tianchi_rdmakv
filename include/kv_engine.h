@@ -21,7 +21,7 @@
 #include "spinlock.h"
 #include "rwlock.h"
 
-#define SHARDING_NUM 115
+#define SHARDING_NUM 113
 #define BUCKET_NUM 1048573
 
 #define REMOTE_MEM_SPACE (1 << 35ul) // 32GB
@@ -96,7 +96,7 @@ class hash_map_t {
   int m_bucket[BUCKET_NUM]; // 记录
   hash_map_slot *global_slot_array;
   // rw_spin_lock m_bucket_lock[BUCKET_NUM];
-  rw_spin_lock m_bucket_lock[BUCKET_NUM/4 + 1]; // 每n行共用一个读写锁
+  rw_spin_lock m_bucket_lock[BUCKET_NUM + 1]; // 每n行共用一个读写锁
   // char m_bucket_lock[56][BUCKET_NUM/4];
   /* Initialize all the pointers to nullptr. */
   hash_map_t() : global_slot_array(nullptr) {
@@ -113,20 +113,20 @@ class hash_map_t {
   hash_map_slot *find(const std::string &key) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
-    // ReadLock rl(m_bucket_lock[index/4]);
-    m_bucket_lock[index/4].lock_reader();
+    // ReadLock rl(m_bucket_lock[index]);
+    m_bucket_lock[index].lock_reader();
     int cur = m_bucket[index];
     
     hash_map_slot *cc = nullptr;
     while (-1 != cur) {
       cc = &(global_slot_array[cur]);
       if (memcmp(cc->key, (void*)key.c_str(), 16) == 0) {
-        m_bucket_lock[index/4].unlock_reader();
+        m_bucket_lock[index].unlock_reader();
         return cc;
       }
       cur = cc->next_slot_id;
     }
-    m_bucket_lock[index/4].unlock_reader();
+    m_bucket_lock[index].unlock_reader();
     return nullptr;
   }
 
@@ -137,21 +137,21 @@ class hash_map_t {
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
     new_slot->internal_value = internal_value;
-    // WriteLock wl(m_bucket_lock[index/4]);
-    m_bucket_lock[index/4].lock_writer();
+    // WriteLock wl(m_bucket_lock[index]);
+    m_bucket_lock[index].lock_writer();
     int tmp_id = m_bucket[index];
     /* Insert into the head. */
     m_bucket[index] = new_slot_id;
     if (-1 != tmp_id) {
       new_slot->next_slot_id = tmp_id;
     }
-    m_bucket_lock[index/4].unlock_writer();
+    m_bucket_lock[index].unlock_writer();
   }
 
   // if not exist or delete fail, return -1, else return kv_slot_id
   int remove(const std::string &key) {
     int index = std::hash<std::string>()(key) % BUCKET_NUM;
-    m_bucket_lock[index/4].lock_writer();
+    m_bucket_lock[index].lock_writer();
     int cur_id = m_bucket[index];
 
     hash_map_slot *cur = nullptr;
@@ -166,13 +166,13 @@ class hash_map_t {
           prev->next_slot_id = cur->next_slot_id;
         }
         cur->next_slot_id = -1;
-        m_bucket_lock[index/4].unlock_writer();
+        m_bucket_lock[index].unlock_writer();
         return cur_id;
       }
       prev_id = cur_id;
       cur_id = cur->next_slot_id;
     }
-    m_bucket_lock[index/4].unlock_writer();
+    m_bucket_lock[index].unlock_writer();
     return -1;
   }
 };
