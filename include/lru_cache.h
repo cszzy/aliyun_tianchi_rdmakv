@@ -21,7 +21,7 @@ struct CacheEntry {
 
 // 把cache entry封装成一个node，用于实现double-linked list
 struct ListNode {
-  ListNode() : key_(0), prev_(nullptr), next_(nullptr), clean_(true) {}
+  ListNode() : key_(0), prev_(nullptr), next_(nullptr), clean_(true), op_times(0){}
   // ListNode(uint64_t key, uint32_t rkey, const CacheEntry &value) : 
   //       key_(key), rkey_(rkey), value_(value), prev_(nullptr), next_(nullptr) {}
 
@@ -45,6 +45,7 @@ struct ListNode {
   ListNode *next_;
   /* 标记数据是否被修改，evict可以用来判读是否需要写回到remote */
   bool clean_;
+  int op_times;
 };
 
 // const int ListNode_size = sizeof(ListNode);
