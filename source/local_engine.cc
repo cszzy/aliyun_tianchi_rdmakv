@@ -288,7 +288,7 @@ bool LocalEngine::write(const std::string &key, const std::string &value, bool u
   }
 #endif
   // hash 分区
-  int index = std::hash<std::string>()(key) % SHARDING_NUM;
+  int index = myhash(key) % SHARDING_NUM;
 
   internal_value_t internal_value;
   internal_value.size = value.size();
@@ -400,7 +400,7 @@ bool LocalEngine::read(const std::string &key, std::string &value) {
     std::cout << "Current time: " << timeToString(time_p) << std::endl;
   }
 #endif
-  int index = std::hash<std::string>()(key) % SHARDING_NUM;
+  int index = myhash(key) % SHARDING_NUM;
 
   /* 从hash表查 start_addr 和 offset */
   hash_map_slot *it = m_hash_map_[index].find(key);
@@ -442,7 +442,7 @@ bool LocalEngine::deleteK(const std::string &key) {
   uint64_t remote_addr;
   uint32_t rkey;
 
-  int index = std::hash<std::string>()(key) % SHARDING_NUM;
+  int index = myhash(key) % SHARDING_NUM;
 
   /* Use the corresponding shard hash map to look for key. */
 

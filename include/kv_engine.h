@@ -41,6 +41,19 @@
 
 namespace kv {
 
+static inline int myhash(const std::string &key) {
+  const char *str = key.c_str();
+  int a = *(int*)str;
+  str += 4;
+  a ^= *(int *)(str);
+  str += 4;
+  a ^= *(int *)(str);
+  str += 4;
+  a ^= *(int *)(str);
+  a >>= 6;
+  return a;
+}
+
 extern std::queue<Page*> *page_pool_[THREAD_NUM]; // 每个线程一个池子
 
 // 用于slot分配的bitmap
@@ -122,7 +135,7 @@ class hash_map_t {
 
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
-    int index = std::hash<std::string>()(key) % BUCKET_NUM;
+    int index = myhash(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
     // ReadLock rl(m_bucket_lock[index]);
     m_bucket[index].lock_.lock_reader();
@@ -143,7 +156,7 @@ class hash_map_t {
 
   /* Insert into the head of the list. */
   void insert(const std::string &key, const internal_value_t &internal_value, int new_slot_id) {
-    int index = std::hash<std::string>()(key) % BUCKET_NUM;
+    int index = myhash(key) % BUCKET_NUM;
     hash_map_slot *new_slot = &(global_slot_array[new_slot_id]);
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
@@ -161,7 +174,7 @@ class hash_map_t {
 
   // if not exist or delete fail, return -1, else return kv_slot_id
   int remove(const std::string &key) {
-    int index = std::hash<std::string>()(key) % BUCKET_NUM;
+    int index = myhash(key) % BUCKET_NUM;
     m_bucket[index].lock_.lock_writer();
     int cur_id = m_bucket[index].head_;
 
