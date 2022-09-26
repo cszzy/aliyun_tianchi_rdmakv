@@ -50,7 +50,7 @@ static inline int myhash(const std::string &key) {
   a ^= *(int *)(str);
   str += 4;
   a ^= *(int *)(str);
-  a >>= 6;
+  a >>= 4;
   return a;
 }
 
