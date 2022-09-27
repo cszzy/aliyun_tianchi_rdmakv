@@ -115,8 +115,8 @@ bool LocalEngine::start(const std::string addr, const std::string port) {
           }
           
           for (int i = start_pos; i < end_pos; i++) {
-            // m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
-            m_cache_[i] = new ClockCache(m_rdma_conn_);
+            m_cache_[i] = new LRUCache((uint64_t)CACHELINE_NUMS, m_rdma_conn_, m_mem_pool_[i]);
+            // m_cache_[i] = new ClockCache(m_rdma_conn_);
           }
 
           page_pool_[thread_id] = new std::queue<Page *>();
