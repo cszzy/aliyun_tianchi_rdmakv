@@ -51,7 +51,7 @@ static inline int myhash(const std::string &key) {
   str += 4;
   b ^= *(int *)(str);
   a ^= b;
-  a = ((unsigned int)a) >> 2;
+  a = ((unsigned int)a) >> 1;
   return a;
 }
 
