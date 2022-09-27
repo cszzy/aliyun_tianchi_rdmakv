@@ -47,10 +47,11 @@ static inline int myhash(const std::string &key) {
   str += 4;
   a ^= *(int *)(str);
   str += 4;
-  a ^= *(int *)(str);
+  int b = *(int *)(str);
   str += 4;
-  a ^= *(int *)(str);
-  a >>= 4;
+  b ^= *(int *)(str);
+  a ^= b;
+  a ^= ((u_int32_t)a) >> 16;
   return a;
 }
 
@@ -135,7 +136,7 @@ class hash_map_t {
 
   /* Find the corresponding key. */
   hash_map_slot *find(const std::string &key) {
-    int index = myhash(key) % BUCKET_NUM;
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
     // char key_finger = hashcode1B(key.c_str());
     // ReadLock rl(m_bucket_lock[index]);
     m_bucket[index].lock_.lock_reader();
@@ -156,7 +157,7 @@ class hash_map_t {
 
   /* Insert into the head of the list. */
   void insert(const std::string &key, const internal_value_t &internal_value, int new_slot_id) {
-    int index = myhash(key) % BUCKET_NUM;
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
     hash_map_slot *new_slot = &(global_slot_array[new_slot_id]);
     memcpy(new_slot->key, key.c_str(), 16);
     // new_slot->finger = hashcode1B(new_slot->key);
@@ -174,7 +175,7 @@ class hash_map_t {
 
   // if not exist or delete fail, return -1, else return kv_slot_id
   int remove(const std::string &key) {
-    int index = myhash(key) % BUCKET_NUM;
+    int index = std::hash<std::string>()(key) % BUCKET_NUM;
     m_bucket[index].lock_.lock_writer();
     int cur_id = m_bucket[index].head_;
 
