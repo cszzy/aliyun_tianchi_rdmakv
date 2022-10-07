@@ -36,7 +36,7 @@ public:
     bool free_slot(cache_id_t cacheline_id, slot_id_t slot_id) {
         put_back(bitmap_[cacheline_id], slot_id);
         uint16_t old_kv_nums = kv_nums_.fetch_sub(1);
-        return (BITMAP_NUMS * (CACHELINE_SIZE/slot_size_)) * 7 == old_kv_nums * 8;
+        return (BITMAP_NUMS * (CACHELINE_SIZE/slot_size_)) * 3 == old_kv_nums * 4;
     }
 
     // 获取空闲slot,失败返回false

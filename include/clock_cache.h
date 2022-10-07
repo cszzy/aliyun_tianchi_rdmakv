@@ -206,15 +206,15 @@ fffind:
     private:
         int get_free_node() {
             int old_pos = clock_ptr;
-            int cur_pos = old_pos + 1;
-            while (cur_pos % CACHELINE_NUMS != old_pos) {
-                if (false == visited[cur_pos % CACHELINE_NUMS]) {
+            clock_ptr++;
+            // int cur_pos = old_pos + 1;
+            while (clock_ptr % CACHELINE_NUMS != old_pos) {
+                if (false == visited[clock_ptr % CACHELINE_NUMS]) {
                     // visited[cur_pos % CACHELINE_NUMS] == true;
-                    clock_ptr = cur_pos % CACHELINE_NUMS;
-                    return cur_pos % CACHELINE_NUMS;
+                    return clock_ptr % CACHELINE_NUMS;
                 } else {
-                    visited[cur_pos % CACHELINE_NUMS] = false;
-                    cur_pos++;
+                    visited[clock_ptr % CACHELINE_NUMS] = false;
+                    clock_ptr++;
                 }
             }
             // 绕了一圈

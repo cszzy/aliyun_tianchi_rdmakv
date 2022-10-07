@@ -22,6 +22,8 @@
 #include "rwlock.h"
 #include "clock_cache.h"
 
+// #define USE_CLOCK_CACHE
+
 #define SHARDING_NUM 173
 #define BUCKET_NUM 1048573
 
@@ -263,8 +265,13 @@ class LocalEngine : public Engine {
   // std::atomic<int> m_slot_cnt_{0}; /* Used to fetch the slot from hash_slot_array. */
   hash_map_t m_hash_map_[SHARDING_NUM];         /* Hash Map with sharding. */
   RDMAMemPool *m_mem_pool_[SHARDING_NUM];
+
+#ifdef USE_CLOCK_CACHE
+  ClockCache *m_cache_[SHARDING_NUM];
+#else
   LRUCache *m_cache_[SHARDING_NUM];
-  // ClockCache *m_cache_[SHARDING_NUM];
+#endif
+
 #ifdef USE_AES
   crypto_message_t m_aes_;
 #endif
